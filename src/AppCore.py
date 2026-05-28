@@ -128,26 +128,13 @@ class AppCore:
             )
 
     # ── 启动 / 停止 ──
-    def start(
-        self,
-        port: str,
-        baudrate: int = 115200,
-        camera_id: int = 0,
-        camera_width: int = 640,
-        camera_height: int = 480,
-        control_freq: float = 125.0,
-    ) -> bool:
+    def start(self) -> bool:
         """
-        启动所有子系统。
-        :param port:          串口号（如 'COM8'）
-        :param baudrate:      波特率
-        :param camera_id:     摄像头 ID
-        :param camera_width:  摄像头宽
-        :param camera_height: 摄像头高
-        :param control_freq:  控制循环频率（Hz）
-        :return:              串口是否连接成功
+        启动所有子系统，所有参数从 config.ini 读取。
+        :return: 串口是否连接成功
         """
         # ── 频率控制 ──
+        control_freq = self._get_cfg("control", "frequency", 125.0, float)
         self._limiter = FrameRateLimiter(control_freq)
 
         # ── 手柄 ──
@@ -164,8 +151,10 @@ class AppCore:
         )
 
         # ── 串口 ──
-        timeout = 0.05
-        poll_interval = 0.001
+        port = self._get_cfg("serial", "port", "COM8")
+        baudrate = self._get_cfg("serial", "baudrate", 115200, int)
+        timeout = self._get_cfg("serial", "timeout", 0.05, float)
+        poll_interval = self._get_cfg("serial", "poll_interval", 0.001, float)
         self._serial = SerialComm(port, baudrate, timeout, poll_interval)
         self._serial.set_callback(self._on_serial_frame)
         connected = self._serial.connect()
@@ -174,10 +163,12 @@ class AppCore:
             self._callbacks.on_connection_changed(connected)
 
         if connected:
-            # 启动请求帧定时发送线程
             self._start_request_timer()
 
         # ── 摄像头 ──
+        camera_id = self._get_cfg("camera", "id", 0, int)
+        camera_width = self._get_cfg("camera", "width", 640, int)
+        camera_height = self._get_cfg("camera", "height", 480, int)
         self._camera = Camera(camera_id, camera_width, camera_height)
         self._camera.start()
 
@@ -244,7 +235,7 @@ class AppCore:
             return self._camera.snapshot(filepath)
         return False
 
-    # ── 录像（进阶挑战） ──
+    # ── 录像 ──
     @property
     def is_recording(self) -> bool:
         return self._camera is not None and self._camera.is_recording
@@ -265,7 +256,7 @@ class AppCore:
             return self._camera.stop_recording()
         return ""
 
-    # ── 秒表（进阶挑战） ──
+    # ── 秒表 ──
     @property
     def stopwatch(self) -> Stopwatch:
         """获取秒表实例（用于任务计时等）"""
@@ -299,7 +290,7 @@ class AppCore:
             self._request_timer_thread = None
 
     def _request_timer_loop(self) -> None:
-        """后台线程：定时发送请求帧以获取传感器数据"""
+        """后台线程：定时发送下行请求帧(0x52 'R')，下位机收到后才回传上行数据帧(0x53 'S')"""
         while self._serial and self._serial.is_connected():
             try:
                 frame = SerialComm.build_request_frame()

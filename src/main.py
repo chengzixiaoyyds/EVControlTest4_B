@@ -2,17 +2,11 @@
 ROV 控制站 —— 程序入口
 
 用法:
-    python -m src.main [--port COM8] [--baudrate 115200] [--camera 0]
+    python src/main.py
 
-═══════════════════════════════════════════════════════
-  主循环数据流（125 Hz）
-═══════════════════════════════════════════════════════
-
-  QTimer(8ms) → AppCore.update() → ControlState
-              → AppCore.get_frame_rgb() → 渲染视频
-              → AppCore.overcurrent_status → UI 刷新
+所有参数在 config/config.ini 中配置。
 """
-import argparse
+import configparser
 import os
 import sys
 import time
@@ -24,8 +18,6 @@ if _BASE_DIR not in sys.path:
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer
-
-import configparser
 
 from src.AppCore import AppCore, AppCallbacks
 from src.gui import MainWindow
@@ -51,20 +43,8 @@ def _ensure_output_dir(key: str, default: str) -> str:
     return d
 
 
-# ── 命令行参数 ──
-def parse_args():
-    parser = argparse.ArgumentParser(description="ROV Control Station")
-    parser.add_argument("--port", default="COM8", help="串口号")
-    parser.add_argument("--baudrate", type=int, default=115200, help="波特率")
-    parser.add_argument("--camera", type=int, default=0, help="摄像头 ID")
-    parser.add_argument("--freq", type=float, default=125.0, help="控制循环频率 (Hz)")
-    return parser.parse_args()
-
-
 # ── 主函数 ──
 def main():
-    args = parse_args()
-
     # ── Qt 应用 ──
     app = QApplication(sys.argv)
     app.setApplicationName("ROV Control Station")
@@ -78,13 +58,8 @@ def main():
     window.set_callbacks_ref(callbacks)
     core.set_callbacks(callbacks)
 
-    # ── 启动后端 ──
-    connected = core.start(
-        port=args.port,
-        baudrate=args.baudrate,
-        camera_id=args.camera,
-        control_freq=args.freq,
-    )
+    # ── 启动后端（所有参数从 config.ini 读取） ──
+    connected = core.start()
     print(f"[Main] 串口连接: {'成功' if connected else '失败'}")
 
     # ── 按钮事件 ──
@@ -115,23 +90,37 @@ def main():
     window.bind_record_toggle(on_record_toggle)
     window.bind_reset_overcurrent(on_reset_overcurrent)
 
+    # 秒表
+    def on_stopwatch_toggle():
+        sw = core.stopwatch
+        if sw.is_running:
+            sw.pause()
+        else:
+            sw.resume() if sw.elapsed > 0 else sw.start()
+
+    def on_stopwatch_reset():
+        core.stopwatch.reset()
+
+    window.bind_stopwatch_toggle(on_stopwatch_toggle)
+    window.bind_stopwatch_reset(on_stopwatch_reset)
+
     # 快捷键回调 → JoystickController 统一管理
     jc = core.get_joystick_controller()
     if jc:
         jc.on_snapshot = on_snapshot
         jc.on_record_toggle = lambda: on_record_toggle(not core.is_recording)
 
-    # ── 主循环定时器（125 Hz） ──
+    # ── 主循环定时器（频率从 config.ini 读取） ──
     loop_timer = QTimer()
-    loop_timer.setInterval(8)  # ~125 Hz
+    cfg = configparser.ConfigParser()
+    cfg.read(os.path.join(_BASE_DIR, "config", "config.ini"), encoding="utf-8")
+    freq = cfg.getfloat("control", "frequency", fallback=125.0) if cfg.has_section("control") else 125.0
+    loop_timer.setInterval(int(1000.0 / freq))
     fps_update_time = time.time()
     fps_frame_count = 0
 
     def on_loop_tick():
         nonlocal fps_update_time, fps_frame_count
-
-        # 手柄/键盘 → 串口下发（统一由 JoystickController 处理）
-        cs = core.update()
 
         # 手柄/键盘 → 串口下发（统一由 JoystickController 处理）
         cs = core.update()
@@ -150,6 +139,10 @@ def main():
 
         # 录像状态
         window.update_record_status(core.is_recording, core.record_duration)
+
+        # 秒表
+        sw = core.stopwatch
+        window.update_stopwatch_display(sw.elapsed, sw.is_running)
 
         # FPS 统计
         fps_frame_count += 1

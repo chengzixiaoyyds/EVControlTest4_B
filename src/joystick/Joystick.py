@@ -177,6 +177,9 @@ class JoystickController:
         # ── 手柄通用设置 ──
         if cfg.has_section("joystick"):
             self.LONG_PRESS_MS = cfg.getint("joystick", "mode_long_press", fallback=self.LONG_PRESS_MS)
+            self.BTN_X = cfg.getint("joystick", "btn_mode", fallback=self.BTN_X)
+            self.BTN_LB = cfg.getint("joystick", "btn_claw_open", fallback=self.BTN_LB)
+            self.BTN_RB = cfg.getint("joystick", "btn_claw_close", fallback=self.BTN_RB)
 
         # ── 键盘映射 ──
         if cfg.has_section("keyboard"):

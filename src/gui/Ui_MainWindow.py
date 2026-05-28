@@ -256,6 +256,32 @@ class Ui_MainWindow(object):
 
         self.rightPanel.addWidget(self.overcurrentGroup)
 
+        self.stopwatchGroup = QGroupBox(self.centralWidget)
+        self.stopwatchGroup.setObjectName(u"stopwatchGroup")
+        self.stopwatchLayout = QHBoxLayout(self.stopwatchGroup)
+        self.stopwatchLayout.setObjectName(u"stopwatchLayout")
+        self.lblStopwatch = QLabel(self.stopwatchGroup)
+        self.lblStopwatch.setObjectName(u"lblStopwatch")
+
+        self.stopwatchLayout.addWidget(self.lblStopwatch)
+
+        self.swSpacer = QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.stopwatchLayout.addItem(self.swSpacer)
+
+        self.btnStopwatch = QPushButton(self.stopwatchGroup)
+        self.btnStopwatch.setObjectName(u"btnStopwatch")
+
+        self.stopwatchLayout.addWidget(self.btnStopwatch)
+
+        self.btnStopwatchReset = QPushButton(self.stopwatchGroup)
+        self.btnStopwatchReset.setObjectName(u"btnStopwatchReset")
+
+        self.stopwatchLayout.addWidget(self.btnStopwatchReset)
+
+
+        self.rightPanel.addWidget(self.stopwatchGroup)
+
         self.actionLayout = QHBoxLayout()
         self.actionLayout.setObjectName(u"actionLayout")
         self.btnSnapshot = QPushButton(self.centralWidget)
@@ -337,6 +363,10 @@ class Ui_MainWindow(object):
         self.lblOcThreshold.setText(QCoreApplication.translate("MainWindow", u"10.0 A", None))
         self.lblOcTimeName.setText(QCoreApplication.translate("MainWindow", u"\u7d2f\u8ba1\u8fc7\u6d41:", None))
         self.lblOcTime.setText(QCoreApplication.translate("MainWindow", u"00:00:00", None))
+        self.stopwatchGroup.setTitle(QCoreApplication.translate("MainWindow", u"\u79d2\u8868", None))
+        self.lblStopwatch.setText(QCoreApplication.translate("MainWindow", u"00:00:00", None))
+        self.btnStopwatch.setText(QCoreApplication.translate("MainWindow", u"\u25b6 \u5f00\u59cb", None))
+        self.btnStopwatchReset.setText(QCoreApplication.translate("MainWindow", u"\u21ba \u91cd\u7f6e", None))
         self.btnSnapshot.setText(QCoreApplication.translate("MainWindow", u"\u622a\u56fe", None))
         self.btnRecord.setText(QCoreApplication.translate("MainWindow", u"\u25cf \u5f55\u50cf", None))
         self.btnResetOc.setText(QCoreApplication.translate("MainWindow", u"\u91cd\u7f6e\u8fc7\u6d41\u7edf\u8ba1", None))

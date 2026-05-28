@@ -133,7 +133,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.lblJoystick.setStyleSheet(S_DIM)
 
         # 禁用按钮焦点，防止方向键切换按钮选中
-        for btn in (self.btnSnapshot, self.btnRecord, self.btnResetOc):
+        for btn in (self.btnSnapshot, self.btnRecord, self.btnResetOc, self.btnStopwatch, self.btnStopwatchReset):
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def _connect_signals(self) -> None:
@@ -170,6 +170,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def bind_reset_overcurrent(self, callback) -> None:
         self.btnResetOc.clicked.connect(callback)
 
+    def bind_stopwatch_toggle(self, callback) -> None:
+        self.btnStopwatch.clicked.connect(callback)
+
+    def bind_stopwatch_reset(self, callback) -> None:
+        self.btnStopwatchReset.clicked.connect(callback)
+
     # ── 视频 ──
     def update_video_frame(self, frame_rgb: Optional[np.ndarray]) -> None:
         if frame_rgb is None:
@@ -201,6 +207,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.btnRecord.setText("● 录像")
             self.statusRecord.setText("")
+
+    def update_stopwatch_display(self, elapsed: float, running: bool) -> None:
+        """更新秒表显示"""
+        h = int(elapsed) // 3600
+        m = (int(elapsed) % 3600) // 60
+        s = int(elapsed) % 60
+        self.lblStopwatch.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        if running:
+            self.btnStopwatch.setText("⏸ 暂停")
+        else:
+            self.btnStopwatch.setText("▶ 开始")
 
     # ════════════════════════════════════════════════
     #  回调 → 信号（后台线程 → UI 线程）

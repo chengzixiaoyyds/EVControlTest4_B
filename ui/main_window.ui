@@ -118,6 +118,18 @@
        </widget>
       </item>
       <item>
+       <!-- 秒表 -->
+       <widget class="QGroupBox" name="stopwatchGroup">
+        <property name="title"><string>秒表</string></property>
+        <layout class="QHBoxLayout" name="stopwatchLayout">
+         <item><widget class="QLabel" name="lblStopwatch"><property name="text"><string>00:00:00</string></property></widget></item>
+         <item><spacer name="swSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>20</width><height>20</height></size></property></spacer></item>
+         <item><widget class="QPushButton" name="btnStopwatch"><property name="text"><string>▶ 开始</string></property></widget></item>
+         <item><widget class="QPushButton" name="btnStopwatchReset"><property name="text"><string>↺ 重置</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <!-- 操作按钮 -->
        <layout class="QHBoxLayout" name="actionLayout">
         <item><widget class="QPushButton" name="btnSnapshot"><property name="text"><string>截图</string></property></widget></item>
