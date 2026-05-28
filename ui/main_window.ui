@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="windowTitle">
+   <string>ROV Control Station</string>
+  </property>
+  <property name="minimumSize">
+   <size><width>960</width><height>600</height></size>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QHBoxLayout" name="rootLayout">
+    <property name="spacing"><number>8</number></property>
+    <property name="leftMargin"><number>8</number></property>
+    <property name="topMargin"><number>8</number></property>
+    <property name="rightMargin"><number>8</number></property>
+    <property name="bottomMargin"><number>8</number></property>
+    <item>
+     <!-- ═══ 左侧：视频画面 ═══ -->
+     <widget class="QLabel" name="videoLabel">
+      <property name="minimumSize"><size><width>640</width><height>480</height></size></property>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>2</horstretch><verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="text"><string>等待摄像头...</string></property>
+      <property name="alignment"><set>Qt::AlignCenter</set></property>
+      <property name="styleSheet"><string notr="true">background: #111; border: 1px solid #444; color: #666;</string></property>
+     </widget>
+    </item>
+    <item>
+     <!-- ═══ 右侧：信息面板 ═══ -->
+     <layout class="QVBoxLayout" name="rightPanel">
+      <property name="spacing"><number>6</number></property>
+      <item>
+       <!-- 连接状态 -->
+       <widget class="QGroupBox" name="connectionGroup">
+        <property name="title"><string>连接状态</string></property>
+        <layout class="QHBoxLayout" name="connectionLayout">
+         <item><widget class="QLabel" name="lblSerial"><property name="text"><string>串口: ○ 未连接</string></property></widget></item>
+         <item><widget class="QLabel" name="lblJoystick"><property name="text"><string>手柄: ○ 未连接</string></property></widget></item>
+         <item><spacer name="connSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 运动模式 -->
+       <widget class="QGroupBox" name="modeGroup">
+        <property name="title"><string>运动模式</string></property>
+        <layout class="QHBoxLayout" name="modeLayout">
+         <item><widget class="QLabel" name="lblModeSlow"><property name="text"><string>○ SLOW</string></property></widget></item>
+         <item><widget class="QLabel" name="lblModeMedium"><property name="text"><string>● MEDIUM</string></property></widget></item>
+         <item><widget class="QLabel" name="lblModeFast"><property name="text"><string>○ FAST</string></property></widget></item>
+         <item><spacer name="modeSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 夹爪状态 -->
+       <widget class="QGroupBox" name="clawGroup">
+        <property name="title"><string>夹爪状态</string></property>
+        <layout class="QHBoxLayout" name="clawLayout">
+         <item><widget class="QLabel" name="lblClaw"><property name="text"><string>夹紧</string></property></widget></item>
+         <item><spacer name="clawSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 控制量 -->
+       <widget class="QGroupBox" name="controlGroup">
+        <property name="title"><string>控制量</string></property>
+        <layout class="QGridLayout" name="controlLayout">
+         <property name="verticalSpacing"><number>2</number></property>
+         <item row="0" column="0"><widget class="QLabel" name="lblCtrlYName"><property name="text"><string>Y 推力 (前进):</string></property></widget></item>
+         <item row="0" column="1"><widget class="QLabel" name="lblCtrlYVal"><property name="text"><string>0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+         <item row="0" column="2"><widget class="QLabel" name="lblCtrlYUnit"><property name="text"><string>N</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="lblCtrlXName"><property name="text"><string>X 推力 (右移):</string></property></widget></item>
+         <item row="1" column="1"><widget class="QLabel" name="lblCtrlXVal"><property name="text"><string>0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+         <item row="1" column="2"><widget class="QLabel" name="lblCtrlXUnit"><property name="text"><string>N</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="lblCtrlZName"><property name="text"><string>Z 推力 (下潜):</string></property></widget></item>
+         <item row="2" column="1"><widget class="QLabel" name="lblCtrlZVal"><property name="text"><string>0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+         <item row="2" column="2"><widget class="QLabel" name="lblCtrlZUnit"><property name="text"><string>N</string></property></widget></item>
+         <item row="3" column="0"><widget class="QLabel" name="lblCtrlYawName"><property name="text"><string>Yaw 扭矩:</string></property></widget></item>
+         <item row="3" column="1"><widget class="QLabel" name="lblCtrlYawVal"><property name="text"><string>0.00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+         <item row="3" column="2"><widget class="QLabel" name="lblCtrlYawUnit"><property name="text"><string>N·m</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 传感器 -->
+       <widget class="QGroupBox" name="sensorGroup">
+        <property name="title"><string>传感器</string></property>
+        <layout class="QGridLayout" name="sensorLayout">
+         <property name="verticalSpacing"><number>2</number></property>
+         <item row="0" column="0"><widget class="QLabel" name="lblTempName"><property name="text"><string>温度:</string></property></widget></item>
+         <item row="0" column="1"><widget class="QLabel" name="lblTempVal"><property name="text"><string>-- °C</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="lblCurrentName"><property name="text"><string>电流:</string></property></widget></item>
+         <item row="1" column="1"><widget class="QLabel" name="lblCurrentVal"><property name="text"><string>-- A</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="lblWaterName"><property name="text"><string>进水:</string></property></widget></item>
+         <item row="2" column="1"><widget class="QLabel" name="lblWaterVal"><property name="text"><string>正常</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 过流保护 -->
+       <widget class="QGroupBox" name="overcurrentGroup">
+        <property name="title"><string>过流保护</string></property>
+        <layout class="QGridLayout" name="overcurrentLayout">
+         <property name="verticalSpacing"><number>2</number></property>
+         <item row="0" column="0"><widget class="QLabel" name="lblOcName"><property name="text"><string>状态:</string></property></widget></item>
+         <item row="0" column="1"><widget class="QLabel" name="lblOcStatus"><property name="text"><string>● 正常</string></property></widget></item>
+         <item row="1" column="0"><widget class="QLabel" name="lblOcThrName"><property name="text"><string>阈值:</string></property></widget></item>
+         <item row="1" column="1"><widget class="QLabel" name="lblOcThreshold"><property name="text"><string>10.0 A</string></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="lblOcTimeName"><property name="text"><string>累计过流:</string></property></widget></item>
+         <item row="2" column="1"><widget class="QLabel" name="lblOcTime"><property name="text"><string>00:00:00</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <!-- 操作按钮 -->
+       <layout class="QHBoxLayout" name="actionLayout">
+        <item><widget class="QPushButton" name="btnSnapshot"><property name="text"><string>截图</string></property></widget></item>
+        <item><widget class="QPushButton" name="btnRecord"><property name="text"><string>● 录像</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+        <item><widget class="QPushButton" name="btnResetOc"><property name="text"><string>重置过流统计</string></property></widget></item>
+        <item><spacer name="actionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
+       </layout>
+      </item>
+      <item><spacer name="rightSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint"><size><width>20</width><height>40</height></size></property></spacer></item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <!-- ═══ 状态栏（控件由 MainWindow._fix_statusbar() 创建） ═══ -->
+  <widget class="QStatusBar" name="statusBar"/>
+ </widget>
+</ui>

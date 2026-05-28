@@ -1,0 +1,184 @@
+"""
+ROV 控制站 —— 程序入口
+
+用法:
+    python -m src.main [--port COM8] [--baudrate 115200] [--camera 0]
+
+═══════════════════════════════════════════════════════
+  主循环数据流（125 Hz）
+═══════════════════════════════════════════════════════
+
+  QTimer(8ms) → AppCore.update() → ControlState
+              → AppCore.get_frame_rgb() → 渲染视频
+              → AppCore.overcurrent_status → UI 刷新
+"""
+import argparse
+import os
+import sys
+import time
+
+# 确保 src 上级目录在 sys.path 中
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BASE_DIR not in sys.path:
+    sys.path.insert(0, _BASE_DIR)
+
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
+
+import configparser
+
+from src.AppCore import AppCore, AppCallbacks
+from src.gui import MainWindow
+from src.camera import Camera
+from src.joystick import ControlState
+from src.utils import Stopwatch
+
+# ── 媒体输出目录 ──
+def _ensure_output_dir(key: str, default: str) -> str:
+    """从 config.ini 读取输出路径，确保目录存在"""
+    cfg = configparser.ConfigParser()
+    cfg_path = os.path.join(_BASE_DIR, "config", "config.ini")
+    d = default
+    if os.path.exists(cfg_path):
+        cfg.read(cfg_path, encoding="utf-8")
+        try:
+            d = cfg.get("media", key, fallback=default)
+        except Exception:
+            pass
+    if not os.path.isabs(d):
+        d = os.path.join(_BASE_DIR, d)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+# ── 命令行参数 ──
+def parse_args():
+    parser = argparse.ArgumentParser(description="ROV Control Station")
+    parser.add_argument("--port", default="COM8", help="串口号")
+    parser.add_argument("--baudrate", type=int, default=115200, help="波特率")
+    parser.add_argument("--camera", type=int, default=0, help="摄像头 ID")
+    parser.add_argument("--freq", type=float, default=125.0, help="控制循环频率 (Hz)")
+    return parser.parse_args()
+
+
+# ── 主函数 ──
+def main():
+    args = parse_args()
+
+    # ── Qt 应用 ──
+    app = QApplication(sys.argv)
+    app.setApplicationName("ROV Control Station")
+
+    # ── 后端核心 ──
+    core = AppCore()
+    window = MainWindow()
+
+    # ── 回调绑定 ──
+    callbacks = AppCallbacks()
+    window.set_callbacks_ref(callbacks)
+    core.set_callbacks(callbacks)
+
+    # ── 启动后端 ──
+    connected = core.start(
+        port=args.port,
+        baudrate=args.baudrate,
+        camera_id=args.camera,
+        control_freq=args.freq,
+    )
+    print(f"[Main] 串口连接: {'成功' if connected else '失败'}")
+
+    # ── 按钮事件 ──
+    snapshot_counter = 0
+
+    screenshot_dir = _ensure_output_dir("screenshot_dir", "screenshots")
+    record_dir = _ensure_output_dir("record_dir", "recordings")
+
+    def on_snapshot():
+        nonlocal snapshot_counter
+        snapshot_counter += 1
+        path = os.path.join(screenshot_dir, f"screenshot_{snapshot_counter:04d}.png")
+        ok = core.snapshot(path)
+        print(f"[Main] 截图 → {path} ({'OK' if ok else 'FAIL'})")
+
+    def on_record_toggle(checked: bool):
+        if checked:
+            path = os.path.join(record_dir, f"record_{time.strftime('%Y%m%d_%H%M%S')}.avi")
+            core.start_recording(path)
+        else:
+            core.stop_recording()
+
+    def on_reset_overcurrent():
+        core.reset_overcurrent_statistics()
+        print("[Main] 过流统计已重置")
+
+    window.bind_snapshot(on_snapshot)
+    window.bind_record_toggle(on_record_toggle)
+    window.bind_reset_overcurrent(on_reset_overcurrent)
+
+    # 快捷键回调 → JoystickController 统一管理
+    jc = core.get_joystick_controller()
+    if jc:
+        jc.on_snapshot = on_snapshot
+        jc.on_record_toggle = lambda: on_record_toggle(not core.is_recording)
+
+    # ── 主循环定时器（125 Hz） ──
+    loop_timer = QTimer()
+    loop_timer.setInterval(8)  # ~125 Hz
+    fps_update_time = time.time()
+    fps_frame_count = 0
+
+    def on_loop_tick():
+        nonlocal fps_update_time, fps_frame_count
+
+        # 手柄/键盘 → 串口下发（统一由 JoystickController 处理）
+        cs = core.update()
+
+        # 手柄/键盘 → 串口下发（统一由 JoystickController 处理）
+        cs = core.update()
+
+        # 发送控制状态给 UI
+        if cs is not None:
+            window.sig_control_update.emit(cs)
+
+        # 视频帧
+        frame_rgb = core.get_frame_rgb()
+        if frame_rgb is not None:
+            window.update_video_frame(frame_rgb)
+
+        # 过流累计时间
+        window.update_overcurrent_time(core.overcurrent_status["total_overcurrent_time"])
+
+        # 录像状态
+        window.update_record_status(core.is_recording, core.record_duration)
+
+        # FPS 统计
+        fps_frame_count += 1
+        now = time.time()
+        if now - fps_update_time >= 1.0:
+            fps = fps_frame_count / (now - fps_update_time)
+            window.update_fps(fps)
+            fps_frame_count = 0
+            fps_update_time = now
+
+    loop_timer.timeout.connect(on_loop_tick)
+    loop_timer.start()
+
+    # ── UI 定时器（50 Hz 刷新显示） ──
+    window.start_ui_timer()
+
+    # ── 显示窗口 ──
+    window.show()
+
+    # ── 事件循环 ──
+    try:
+        exit_code = app.exec()
+    finally:
+        print("[Main] 正在关闭...")
+        loop_timer.stop()
+        core.stop()
+
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

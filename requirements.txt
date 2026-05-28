@@ -1,0 +1,8 @@
+# ROV Control Station — 依赖清单
+# 安装: pip install -r requirements.txt
+
+pygame>=2.5.0
+pyserial>=3.5
+opencv-python>=4.8.0
+numpy>=1.24.0
+PySide6>=6.5.0
