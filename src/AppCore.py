@@ -1,28 +1,12 @@
 """
-ROV 控制站 —— 应用核心聚合层。
+应用核心 —— 子系统聚合层，唯一有权读取 config.ini 的模块。
 
-将手柄控制、串口通信、传感器解析、过流检测、摄像头采集
-整合为统一的 AppCore 接口，供 GUI 层调用。
+职责:
+  - 加载配置 → 分发给各子系统
+  - 编排数据流: 手柄 → 串口下发, 串口上行 → 传感器解析 → 过流监控 → GUI
+  - 暴露统一接口给 main.py
 
-═══════════════════════════════════════════════════════
-  数据流
-═══════════════════════════════════════════════════════
-
-  手柄/键盘 ──→ JoystickController.update()
-      │                ↓ ControlState
-      │         SerialComm.build_data_frame()
-      │                ↓ 下行数据帧
-      │          SerialComm.send_frame()
-      │                ↓
-      │         ═══ 串口 ═══
-      │                ↓
-      │         CommandBuffer.get_command()
-      │                ↓ 上行帧 (15 bytes)
-      │         SensorParser.parse()
-      │                ↓ SensorData
-      │         OvercurrentMonitor.update()
-      │
-  摄像头 ──→ Camera.get_frame()
+不负责: UI 渲染、协议解析、硬件驱动。
 """
 
 import configparser
@@ -31,7 +15,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from .joystick import JoystickController, ControlState, SpeedMode
+from .joystick import JoystickController, ControlState
 from .serial_comm import SerialComm
 from .sensor import SensorParser, SensorData, OvercurrentMonitor
 from .camera import Camera
@@ -47,7 +31,7 @@ _DEFAULT_CONFIG = os.path.join(_BASE_DIR, "config", "config.ini")
 # ════════════════════════════════════════════════════════
 
 class AppCallbacks:
-    """GUI 可注册的回调集合"""
+    """GUI 回调集合 —— AppCore 通过它们把数据推送给 MainWindow，避免反向依赖。"""
     on_sensor_data: Optional[Callable[[SensorData], None]] = None       # 收到传感器数据
     on_overcurrent_enter: Optional[Callable[[float], None]] = None      # 进入过流(电流值)
     on_overcurrent_exit: Optional[Callable[[float, float], None]] = None  # 退出过流(电流值, 持续秒)
@@ -61,16 +45,14 @@ class AppCallbacks:
 
 class AppCore:
     """
-    ROV 控制站应用核心。
+    系统组装器 —— 创建并连接所有子系统，暴露统一控制接口。
 
-    使用方法:
-        app = AppCore()
-        app.set_callbacks(...)
-        app.start(port='COM8', baudrate=115200)
-        ...
-        cs = app.update()          # 每帧调用（~125 Hz）
-        frame = app.get_frame()    # 获取摄像头帧
-        app.stop()
+    只做编排，不做具体工作：
+      手柄 → JoystickController
+      通信 → SerialComm
+      解析 → SensorParser
+      监控 → OvercurrentMonitor
+      视频 → Camera
     """
 
     def __init__(self, config_path: Optional[str] = None):
@@ -99,7 +81,7 @@ class AppCore:
         self._request_interval = 0.2  # 200ms 发送一次请求帧
         self._request_timer_thread: Optional[threading.Thread] = None
 
-    # ── 配置加载 ──
+    # === 配置 ===
     def _load_config(self) -> configparser.ConfigParser:
         cfg = configparser.ConfigParser()
         if os.path.exists(self._config_path):
@@ -107,14 +89,20 @@ class AppCore:
         return cfg
 
     def _get_cfg(self, section: str, key: str, fallback: Any = None, conv: type = str) -> Any:
-        """安全读取配置项"""
+        """
+        安全读取单个配置项。
+        :param section:  配置节名，如 "serial"
+        :param key:      配置键名，如 "port"
+        :param fallback: 默认值（节或键不存在时返回）
+        :param conv:     类型转换函数，如 int / float
+        """
         try:
             val = self._cfg.get(section, key)
             return conv(val)
         except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
             return fallback
 
-    # ── 回调注册 ──
+    # === 回调注册 ===
     def set_callbacks(self, callbacks: AppCallbacks) -> None:
         """注册 GUI 回调"""
         self._callbacks = callbacks
@@ -124,14 +112,18 @@ class AppCore:
                 on_exit=callbacks.on_overcurrent_exit,
             )
 
-    # ── 启动 / 停止 ──
+    # === 启动 / 停止 ===
     def start(self) -> bool:
         """
         启动所有子系统，所有参数从 config.ini 读取。
         :return: 串口是否连接成功
         """
         # ── 手柄 ──
-        self._joystick = JoystickController(self._config_path)
+        jc_kb  = self._section_dict("keyboard")
+        jc_joy = self._section_dict("joystick")
+        jc_axes = {n: self._section_dict(n) for n in ("x", "y", "z", "yaw") if self._cfg.has_section(n)}
+        jc_spd  = self._section_dict("speed_modes")
+        self._joystick = JoystickController(jc_kb, jc_joy, jc_axes, jc_spd)
         if self._callbacks.on_joystick_changed:
             self._callbacks.on_joystick_changed(self._joystick.has_joystick)
 
@@ -186,7 +178,7 @@ class AppCore:
             self._joystick.close()
             self._joystick = None
 
-    # ── 每帧更新 ──
+    # === 每帧更新（125Hz，主循环调用）===
     def update(self) -> ControlState:
         """
         每帧调用一次（推荐 125 Hz）。
@@ -211,7 +203,7 @@ class AppCore:
 
         return cs
 
-    # ── 摄像头 ──
+    # === 摄像头 ===
     def get_frame(self):
         """获取最新摄像头帧（BGR numpy 数组）"""
         if self._camera:
@@ -230,7 +222,7 @@ class AppCore:
             return self._camera.snapshot(filepath)
         return False
 
-    # ── 录像 ──
+    # --- 录像 ---
     @property
     def is_recording(self) -> bool:
         return self._camera is not None and self._camera.is_recording
@@ -251,15 +243,15 @@ class AppCore:
             return self._camera.stop_recording()
         return ""
 
-    # ── 秒表 ──
+    # === 秒表 ===
     @property
     def stopwatch(self) -> Stopwatch:
         """获取秒表实例（用于任务计时等）"""
         return self._stopwatch
 
-    # ── 请求帧定时器 ──
+    # === 请求帧定时器 ===
     def _start_request_timer(self) -> None:
-        """启动后台线程，定时发送下行请求帧"""
+        """启动后台线程，每 200ms 发送下行请求帧(0x52 'R')，触发下位机回传传感器数据"""
         self._stop_request_timer()
         self._request_timer_thread = threading.Thread(
             target=self._request_timer_loop, daemon=True
@@ -267,8 +259,8 @@ class AppCore:
         self._request_timer_thread.start()
 
     def _stop_request_timer(self) -> None:
+        """停止请求帧后台线程（daemon 线程会随进程自动退出）"""
         if self._request_timer_thread is not None:
-            # daemon 线程会自动退出
             self._request_timer_thread = None
 
     def _request_timer_loop(self) -> None:
@@ -281,7 +273,7 @@ class AppCore:
                 pass
             time.sleep(self._request_interval)
 
-    # ── 串口回调 ──
+    # === 串口回调 ===
     def _on_serial_frame(self, raw_frame: bytes) -> None:
         """
         SerialComm 收到完整上行帧时的回调。
@@ -298,7 +290,7 @@ class AppCore:
         if self._callbacks.on_sensor_data:
             self._callbacks.on_sensor_data(sensor)
 
-    # ── 状态查询 ──
+    # === 状态查询 ===
     @property
     def latest_control(self) -> Optional[ControlState]:
         """最近一次控制状态"""
@@ -311,29 +303,56 @@ class AppCore:
 
     @property
     def is_serial_connected(self) -> bool:
+        """串口是否已连接"""
         return self._serial is not None and self._serial.is_connected()
 
     @property
     def has_joystick(self) -> bool:
+        """是否检测到物理手柄"""
         return self._joystick is not None and self._joystick.has_joystick
 
     @property
     def is_camera_connected(self) -> bool:
+        """摄像头是否正常采集"""
         return self._camera is not None and self._camera.is_connected
 
     @property
     def overcurrent_status(self) -> dict:
+        """过流状态摘要 {is_overcurrent, threshold, total_overcurrent_time}"""
         if self._overcurrent:
             return self._overcurrent.get_status_dict()
         return {"is_overcurrent": False, "threshold": 0.0, "total_overcurrent_time": 0.0}
 
     @property
     def camera_actual_fps(self) -> float:
+        """摄像头实际采集帧率"""
         return self._camera.actual_fps if self._camera else 0.0
 
+    # === 配置暴露 ===
     def get_joystick_controller(self) -> Optional[JoystickController]:
-        """获取手柄控制器引用（供 GUI 直接查询模式等）"""
+        """获取手柄控制器引用（供 main.py 设置快捷键回调等）"""
         return self._joystick
+
+    @property
+    def keyboard_config(self) -> dict:
+        """键盘映射配置 dict → MainWindow → KeyBridge"""
+        return self._section_dict("keyboard")
+
+    @property
+    def media_config(self) -> dict:
+        """媒体输出路径 {screenshot_dir, record_dir} → main.py"""
+        return self._section_dict("media")
+
+    @property
+    def control_frequency(self) -> float:
+        """控制循环频率 (Hz) → main.py 主循环"""
+        return self._get_cfg("control", "frequency", 125.0, float)
+
+    def _section_dict(self, section: str) -> dict:
+        """将配置段转为普通 dict，供子系统使用（避免传递 ConfigParser 对象）"""
+        if self._cfg.has_section(section):
+            return dict(self._cfg.items(section))
+        return {}
 
     def reset_overcurrent_statistics(self) -> None:
         """重置过流累计时间统计"""

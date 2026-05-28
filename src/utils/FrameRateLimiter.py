@@ -1,17 +1,14 @@
 """
-帧率限制器 —— 控制循环执行频率，不依赖 pygame。
+帧率限制器 —— 阻塞式频率控制 + 实际 FPS 统计。
 
-用法:
-    limiter = FrameRateLimiter(125)   # 125 Hz
-    while True:
-        limiter.wait()                # 阻塞至下一帧
+不依赖 pygame，可用于任意循环。
 """
 
 import time
 
 
 class FrameRateLimiter:
-    """频率控制器，使循环以固定频率运行"""
+    """频率控制器 —— wait() 阻塞至下一帧，自动统计实际 FPS"""
 
     def __init__(self, frequency: float):
         """

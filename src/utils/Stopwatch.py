@@ -1,29 +1,19 @@
 """
-秒表工具 —— 用于计时、统计等场景（进阶挑战）。
-
-用法:
-    sw = Stopwatch()
-    sw.start()
-    ... do something ...
-    elapsed = sw.elapsed          # 已过秒数
-    sw.pause()
-    ... do something else ...
-    sw.resume()
-    total = sw.total              # 总运行秒数
+秒表 —— 可暂停恢复的计时器，用于任务计时。
 """
 
 import time
 
 
 class Stopwatch:
-    """可暂停/恢复的秒表"""
+    """可暂停/恢复的秒表，基于 perf_counter 高精度计时"""
 
     def __init__(self):
         self._start_time: float = 0.0
         self._accumulated: float = 0.0   # 累计运行时间（秒）
         self._running: bool = False
 
-    # ── 控制 ──
+    # === 控制 ===
     def start(self) -> None:
         """开始计时（若已运行则重置）"""
         self._start_time = time.perf_counter()
@@ -48,7 +38,7 @@ class Stopwatch:
         self._accumulated = 0.0
         self._running = False
 
-    # ── 只读属性 ──
+    # === 查询 ===
     @property
     def elapsed(self) -> float:
         """自 start/resume 以来经过的秒数（含暂停前累计）"""
@@ -65,7 +55,7 @@ class Stopwatch:
     def is_running(self) -> bool:
         return self._running
 
-    # ── 格式化 ──
+    # === 格式化 ===
     def format(self, fmt: str = "mm:ss") -> str:
         """
         格式化显示时间。

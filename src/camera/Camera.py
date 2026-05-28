@@ -1,11 +1,12 @@
 """
-摄像头模块 —— 使用 OpenCV 采集 USB 摄像头视频流。
+摄像头 —— 后台线程采集 + 非阻塞取帧，支持录像。
 
-特性：
-  - 后台线程持续读取，降低延迟
-  - 支持获取最新帧（非阻塞）
-  - 自动重连
-  - 支持视频录制（保存为 .avi 文件）
+线程模型:
+  主线程    → get_frame() / snapshot() / 录像启停
+  采集线程  → 循环 read() + 录像写入 + FPS 统计
+
+录像安全: _record_lock 保护启停与写入的并发。
+依赖: OpenCV
 """
 
 import threading
@@ -17,7 +18,12 @@ import numpy as np
 
 
 class Camera:
-    """USB 摄像头采集器，后台线程持续抓帧，支持录像"""
+    """
+    USB 摄像头封装 —— 后台线程抓帧，主线程无阻塞获取。
+
+    自动重连: 读取失败时释放并重新打开设备。
+    录像: 采集线程中顺带写入 .avi，不额外开销。
+    """
 
     def __init__(self, camera_id: int = 0, width: int = 640, height: int = 480, fps: int = 30):
         """
@@ -140,9 +146,8 @@ class Camera:
             return None
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # ── 后台采集线程 ──
+    # ── 后台采集线程（同时处理录像写入和 FPS 统计）──
     def _capture_loop(self) -> None:
-        """后台线程：持续从摄像头读取帧，同时处理录像写入"""
         while self._running:
             if self._cap is None or not self._cap.isOpened():
                 time.sleep(0.1)
@@ -206,10 +211,10 @@ class Camera:
 
     def start_recording(self, filepath: str, codec: str = "XVID") -> bool:
         """
-        开始录制视频。
+        开始录制视频（后台线程自动写入帧）。
         :param filepath: 保存路径（如 'record.avi'）
-        :param codec:    编码格式（默认 XVID → .avi）
-        :return:         是否成功开始录像
+        :param codec:    编码格式 FourCC（默认 XVID）
+        :return:         是否成功
         """
         if self._recording:
             print("[Camera] 已在录像中")

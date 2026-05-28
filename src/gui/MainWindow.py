@@ -1,60 +1,25 @@
 """
-ROV 控制站 —— 主界面 (PySide6)
+主界面 —— PySide6 窗口，纯 UI 层，不处理业务逻辑。
 
-界面由 ui/main_window.ui 通过 pyside6-uic 编译生成 Ui_MainWindow。
-修改布局请编辑 .ui 文件后重新运行:
-    pyside6-uic ui/main_window.ui -o src/gui/Ui_MainWindow.py
+数据流入:
+  - AppCore 回调 → Qt Signal → UI 线程安全更新
+  - 主循环 125Hz 推送: ControlState / 视频帧 / 过流时间
 
-布局结构：
-┌──────────────┬────────────────────────┐
-│              │  串口/手柄 连接状态      │
-│   视频画面    │  运动模式 SLOW/MED/FAST │
-│   640×480    │  夹爪状态               │
-│              │  控制量 (thrust/yaw)     │
-│              │  传感器 (温度/电流/进水)  │
-│              │  过流保护 (状态/累计)     │
-├──────────────┴────────────────────────┤
-│  状态栏: 串口 | 手柄 | 帧率 | 录像     │
-└───────────────────────────────────────┘
+职责边界: 只做显示和按键转发，不读配置、不碰硬件。
 """
 
 from typing import Optional
-import configparser
-import os
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QImage, QPixmap, QKeyEvent
 from PySide6.QtWidgets import QMainWindow, QLabel
 
 import numpy as np
-import pygame
 
 from .Ui_MainWindow import Ui_MainWindow
+from .KeyBridge import KeyBridge
 from ..sensor import SensorData
 from ..joystick import ControlState, SpeedMode, MODE_NAMES
-
-
-# ── 路径 ──
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DEFAULT_CONFIG = os.path.join(_BASE_DIR, "config", "config.ini")
-
-# ── 键名覆盖表 ──
-# 格式: {config.ini 键名: (Qt.Key 属性名, pygame 属性名)}
-# 仅收录 Qt 或 pygame 命名不遵循 Key_<name> / K_<name> 规则的按键。
-# 未列出的按键通过动态反射自动解析（覆盖 ~95% 的场景）。
-_KEY_OVERRIDE: dict[str, tuple[str, str]] = {
-    # config 键名     → (Qt.Key 属性,        pygame 属性)
-    "Shift":           ("Key_Shift",        "K_LSHIFT"),         # pygame 无 K_SHIFT
-    "Control":         ("Key_Control",      "K_LCTRL"),          # pygame 无 K_CONTROL
-    "Alt":             ("Key_Alt",          "K_LALT"),           # pygame 无 K_ALT
-    "Meta":            ("Key_Meta",         "K_LMETA"),          # pygame 无 K_META
-    "Enter":           ("Key_Enter",        "K_RETURN"),         # pygame 用 K_RETURN
-    "Equal":           ("Key_Equal",        "K_EQUALS"),         # pygame 用 K_EQUALS
-    "BracketLeft":     ("Key_BracketLeft",  "K_LEFTBRACKET"),    # pygame 命名不同
-    "BracketRight":    ("Key_BracketRight", "K_RIGHTBRACKET"),   # pygame 命名不同
-    "Backquote":       ("Key_QuoteLeft",    "K_BACKQUOTE"),      # Qt 用 Key_QuoteLeft
-    "QuoteDbl":        ("Key_QuoteDbl",     "K_QUOTEDBL"),       # Qt/pygame 均非标准名
-}
 
 
 # ── 样式常量 ──
@@ -69,7 +34,11 @@ S_YELLOW = "color: #ff0; font-weight: bold;"
 # ════════════════════════════════════════════════════
 
 class MainWindow(QMainWindow, Ui_MainWindow):
-    """ROV 控制站主窗口"""
+    """
+    主窗口 —— 视频显示 + 状态面板 + 按键转发。
+
+    信号机制: AppCore 回调在线程中触发 → Qt Signal → UI 线程安全更新
+    """
 
     # ── 信号（跨线程安全） ──
     sig_sensor_update      = Signal(object)   # SensorData
@@ -78,11 +47,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     sig_joystick_update    = Signal(bool)
     sig_overcurrent_update = Signal(dict)
 
-    def __init__(self):
+    def __init__(self, keyboard_cfg: dict | None = None):
         super().__init__()
         self.setupUi(self)        # Ui_MainWindow 生成所有控件
         self._fix_statusbar()     # 修复状态栏控件布局
-        self._load_key_mapping()  # 从 config.ini 加载按键映射
+        self._key_bridge = KeyBridge(keyboard_cfg) if keyboard_cfg else None
         self._init_state()
         self._apply_styles()
         self._connect_signals()
@@ -144,7 +113,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.sig_overcurrent_update.connect(self._slot_overcurrent, t)
 
     # ════════════════════════════════════════════════
-    #  公共接口（main.py 调用）
+    #  公共接口 —— 按钮绑定（由 main.py 调用）
     # ════════════════════════════════════════════════
 
     def set_callbacks_ref(self, callbacks) -> None:
@@ -175,8 +144,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def bind_stopwatch_reset(self, callback) -> None:
         self.btnStopwatchReset.clicked.connect(callback)
 
-    # ── 视频 ──
+    # ── 视频帧显示（RGB numpy → QPixmap）──
     def update_video_frame(self, frame_rgb: Optional[np.ndarray]) -> None:
+        """将 RGB numpy 数组显示到 videoLabel"""
         if frame_rgb is None:
             return
         h, w_img, ch = frame_rgb.shape
@@ -188,7 +158,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         self.videoLabel.setPixmap(pix)
 
-    # ── 过流时间 ──
+    # ── 过流时间显示（秒 → HH:MM:SS）──
     def update_overcurrent_time(self, seconds: float) -> None:
         h = int(seconds) // 3600
         m = (int(seconds) % 3600) // 60
@@ -196,8 +166,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.lblOcTime.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
     def update_fps(self, fps: float) -> None:
+        """更新 FPS 缓存值（在 _on_tick 中刷新显示）"""
         self._fps = fps
 
+    # ── 录像状态（按钮文字 + 状态栏计时）──
     def update_record_status(self, recording: bool, duration: float = 0.0) -> None:
         if recording:
             m, s = int(duration) // 60, int(duration) % 60
@@ -297,10 +269,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.lblOcStatus.setStyleSheet(S_NORMAL)
 
     # ════════════════════════════════════════════════
-    #  控件内容刷新
+    #  控件内容刷新（由 _on_tick 和 Slot 调用）
     # ════════════════════════════════════════════════
 
     def _refresh_sensor(self, d: SensorData) -> None:
+        """刷新传感器显示：温度、电流、进水状态"""
         self.lblTempVal.setText(f"{d.temperature:.1f} °C")
         self.lblCurrentVal.setText(f"{d.current:.2f} A")
         if d.water_ingress:
@@ -311,6 +284,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.lblWaterVal.setStyleSheet(S_NORMAL)
 
     def _refresh_control(self, cs: ControlState) -> None:
+        """刷新控制显示：推力值、运动模式、夹爪状态"""
         self.lblCtrlYVal.setText(f"{cs.thrust_y:.2f}")
         self.lblCtrlXVal.setText(f"{cs.thrust_x:.2f}")
         self.lblCtrlZVal.setText(f"{cs.thrust_z:.2f}")
@@ -335,87 +309,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.lblClaw.setText("夹紧")
             self.lblClaw.setStyleSheet(S_YELLOW + "; font-size: 14px;")
 
-    # ── 键盘映射（从 config.ini 加载）──
-    @staticmethod
-    def _resolve_key_name(name: str):
-        """
-        从 config.ini 的按键名动态解析为 (Qt.Key, pygame.K) 元组。
-        优先查 _KEY_OVERRIDE 覆盖表，否则通过反射从 Qt/pygame 实时获取。
-        """
-        if not name:
-            return None
-
-        override = _KEY_OVERRIDE.get(name)
-        if override:
-            qt_attr, pg_attr = override
-            try:
-                qt_key = getattr(Qt.Key, qt_attr)
-            except AttributeError:
-                return None
-            try:
-                pg_key = getattr(pygame, pg_attr)
-            except AttributeError:
-                return None
-            return (qt_key, pg_key)
-
-        # 动态解析：Qt.Key.Key_<name>
-        try:
-            qt_key = getattr(Qt.Key, f"Key_{name}")
-        except AttributeError:
-            return None
-
-        # 动态解析：pygame.K_<name>（先小写，再大写）
-        try:
-            pg_key = getattr(pygame, f"K_{name.lower()}")
-        except AttributeError:
-            try:
-                pg_key = getattr(pygame, f"K_{name.upper()}")
-            except AttributeError:
-                return None
-
-        return (qt_key, pg_key)
-
-    def _load_key_mapping(self) -> None:
-        """从 config.ini 读取所有键盘映射，构建 Qt→pygame 键码表"""
-        cfg = configparser.ConfigParser()
-        cfg.read(_DEFAULT_CONFIG, encoding="utf-8")
-
-        self._qt_to_pygame: dict[int, int] = {}
-        if not cfg.has_section("keyboard"):
-            return
-
-        # 所有配置键名（全部转发到 pygame）
-        cfg_keys = [
-            "key_forward", "key_backward", "key_yaw_left", "key_yaw_right",
-            "key_strafe_left", "key_strafe_right",
-            "key_ascend", "key_descend",
-            "key_mode_toggle", "key_mode_reverse",
-            "key_claw_open", "key_claw_close",
-            "key_snapshot", "key_record",
-        ]
-        for name in cfg_keys:
-            val = cfg.get("keyboard", name, fallback="")
-            resolved = self._resolve_key_name(val)
-            if resolved is not None:
-                qt_key, pg_key = resolved
-                self._qt_to_pygame[qt_key.value] = pg_key
-
+    # ── 键盘事件（委托给 KeyBridge）──
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.isAutoRepeat():
-            return
-        pg_key = self._qt_to_pygame.get(int(event.key()))
-        if pg_key is not None:
-            pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pg_key))
+        if self._key_bridge and self._key_bridge.handle_key_press(event):
             event.accept()
             return
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
-        if event.isAutoRepeat():
-            return
-        pg_key = self._qt_to_pygame.get(int(event.key()))
-        if pg_key is not None:
-            pygame.event.post(pygame.event.Event(pygame.KEYUP, key=pg_key))
+        if self._key_bridge and self._key_bridge.handle_key_release(event):
             event.accept()
             return
         super().keyReleaseEvent(event)

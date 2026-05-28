@@ -1,27 +1,12 @@
 """
-手柄控制模块 —— 读取手柄/键盘输入，映射为 ROV 控制量。
+输入模块 —— 手柄/键盘 → ROV 控制量映射。
 
-依赖: pygame
+双输入源自动切换: 检测到物理手柄则用手柄，否则键盘模拟。
+键盘事件由 MainWindow 捕获 → KeyBridge 转发为 pygame 事件 → 本模块统一处理。
 
-摇杆映射（参考《Mini ROV 技术手册》附录 A~C）：
-
-  手柄操作              → ROV 动作          → 输出字段
-  ─────────────────────────────────────────────────────
-  左摇杆 前推 / 后拉     → 前进 / 后退       → thrust_y
-  左摇杆 右推 / 左推     → 顺时针 / 逆时针    → yaw_torque
-  右摇杆 右推 / 左推     → 右移 / 左移        → thrust_x
-  右摇杆 前推 / 后拉     → 上浮 / 下潜        → thrust_z
-  X 键                   → 运动模式轮换       → mode
-  LB / RB               → 夹爪张开 / 夹紧    → claw_state
-
-模式档位：
-  SLOW   (30%)  — 精确定位
-  MEDIUM (60%)  — 一般巡检
-  FAST   (100%) — 快速移动
+输出: ControlState (thrust_y/x/z, yaw_torque, arm_angle, mode, claw_state)
 """
 
-import configparser
-import os
 import time
 from dataclasses import dataclass
 from enum import IntEnum
@@ -29,16 +14,13 @@ from typing import Callable, Optional
 
 import pygame
 
-# ───────── 路径 ─────────
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DEFAULT_CONFIG = os.path.join(_BASE_DIR, "config", "config.ini")
-
 
 # ════════════════════════════════════════════════════════
 #  数据结构
 # ════════════════════════════════════════════════════════
 
 class SpeedMode(IntEnum):
+    """三档速度模式，影响控制量的倍率系数"""
     SLOW = 0
     MEDIUM = 1
     FAST = 2
@@ -59,7 +41,13 @@ MODE_RATES = {
 
 @dataclass
 class ControlState:
-    """单帧控制量，可直接传给 SerialComm.build_data_frame()"""
+    """
+    单帧控制指令，可直接传给 SerialComm.build_data_frame()。
+
+    坐标系 (WND 右手系):
+      thrust_y: 前进+   thrust_x: 右移+   thrust_z: 下潜+
+      yaw_torque: 顺时针+
+    """
     thrust_y: float = 0.0       # Y 推力 (N)，前进为正
     thrust_x: float = 0.0       # X 推力 (N)，右移为正（预留）
     thrust_z: float = 0.0       # Z 推力 (N)，下潜为正
@@ -75,7 +63,14 @@ class ControlState:
 # ════════════════════════════════════════════════════════
 
 class JoystickController:
-    """手柄 / 键盘 控制器，每一帧调用 update() 获取最新 ControlState"""
+    """
+    输入统一层 —— 屏蔽手柄/键盘差异，输出标准 ControlState。
+
+    手柄模式: 读取 pygame 摇杆轴值 + 按钮
+    键盘模式: 接收 Qt 转发事件，按下即满量程（无渐变）
+
+    模式切换: X 键短按正向轮换 (SLOW→MEDIUM→FAST)，长按反向
+    """
 
     # ── 默认轴映射（pygame 轴索引） ──
     AXIS_LX = 0          # 左摇杆 X
@@ -119,8 +114,15 @@ class JoystickController:
     # ── 长按判定 ──
     LONG_PRESS_MS = 400       # 超过此时间视为长按
 
-    def __init__(self, config_path: Optional[str] = None):
-        self._config_path = config_path or _DEFAULT_CONFIG
+    def __init__(self, keyboard_cfg: dict, joystick_cfg: dict, axis_cfg: dict, speed_cfg: dict):
+        """
+        所有配置由 AppCore 统一加载后传入，本模块不再读取 config.ini。
+
+        :param keyboard_cfg: {"key_forward": "W", "key_backward": "S", ...}
+        :param joystick_cfg: {"mode_long_press": "400", "btn_mode": "2", ...}
+        :param axis_cfg:     {"x": {"max": "6000.0", "axis": "2", "deadzone": "0.05"}, ...}
+        :param speed_cfg:    {"mode0_rate": "0.30", "mode0_name": "SLOW", ...}
+        """
         self._joystick: "pygame.joystick.JoystickType | None" = None
         self._has_joystick = False
 
@@ -159,55 +161,58 @@ class JoystickController:
         # 键盘按键追踪（基于 pygame 事件，兼容 Qt 转发）
         self._key_state: dict[int, bool] = {}
 
-        # 加载配置
-        self._load_config()
+        # 加载配置（从 AppCore 传入的 dict）
+        self._apply_config(keyboard_cfg, joystick_cfg, axis_cfg, speed_cfg)
 
         # 初始化 pygame
         self._init_pygame()
 
-    def _load_config(self) -> None:
-        """读取 config.ini 覆盖默认值"""
-        cfg = configparser.ConfigParser()
-        if not os.path.exists(self._config_path):
-            return
-        cfg.read(self._config_path, encoding="utf-8")
-
-        # ── 手柄轴映射（每轴独立节） ──
+    # ── 配置应用（由 AppCore 传入 dict，不再直接读取文件）──
+    def _apply_config(self, keyboard_cfg: dict, joystick_cfg: dict, axis_cfg: dict, speed_cfg: dict) -> None:
+        # ── 手柄轴映射 ──
         for name in ("x", "y", "z", "yaw"):
-            if cfg.has_section(name):
-                self._axis_cfg[name]["axis"] = cfg.getint(name, "axis", fallback=self._axis_cfg[name]["axis"])
-                self._axis_cfg[name]["max"] = cfg.getfloat(name, "max", fallback=self._axis_cfg[name]["max"])
-                self._axis_cfg[name]["deadzone"] = cfg.getfloat(name, "deadzone", fallback=self._axis_cfg[name]["deadzone"])
+            sec = axis_cfg.get(name, {})
+            if sec:
+                if "axis" in sec:
+                    self._axis_cfg[name]["axis"] = int(sec["axis"])
+                if "max" in sec:
+                    self._axis_cfg[name]["max"] = float(sec["max"])
+                if "deadzone" in sec:
+                    self._axis_cfg[name]["deadzone"] = float(sec["deadzone"])
 
         # ── 手柄通用设置 ──
-        if cfg.has_section("joystick"):
-            self.LONG_PRESS_MS = cfg.getint("joystick", "mode_long_press", fallback=self.LONG_PRESS_MS)
-            self.BTN_X = cfg.getint("joystick", "btn_mode", fallback=self.BTN_X)
-            self.BTN_LB = cfg.getint("joystick", "btn_claw_open", fallback=self.BTN_LB)
-            self.BTN_RB = cfg.getint("joystick", "btn_claw_close", fallback=self.BTN_RB)
+        if joystick_cfg:
+            if "mode_long_press" in joystick_cfg:
+                self.LONG_PRESS_MS = int(joystick_cfg["mode_long_press"])
+            if "btn_mode" in joystick_cfg:
+                self.BTN_X = int(joystick_cfg["btn_mode"])
+            if "btn_claw_open" in joystick_cfg:
+                self.BTN_LB = int(joystick_cfg["btn_claw_open"])
+            if "btn_claw_close" in joystick_cfg:
+                self.BTN_RB = int(joystick_cfg["btn_claw_close"])
 
         # ── 键盘映射 ──
-        if cfg.has_section("keyboard"):
-            self.KEY_FORWARD = self._key_from_cfg(cfg, "keyboard", "key_forward", self.KEY_FORWARD)
-            self.KEY_BACKWARD = self._key_from_cfg(cfg, "keyboard", "key_backward", self.KEY_BACKWARD)
-            self.KEY_YAW_LEFT = self._key_from_cfg(cfg, "keyboard", "key_yaw_left", self.KEY_YAW_LEFT)
-            self.KEY_YAW_RIGHT = self._key_from_cfg(cfg, "keyboard", "key_yaw_right", self.KEY_YAW_RIGHT)
-            self.KEY_STRAFE_LEFT = self._key_from_cfg(cfg, "keyboard", "key_strafe_left", self.KEY_STRAFE_LEFT)
-            self.KEY_STRAFE_RIGHT = self._key_from_cfg(cfg, "keyboard", "key_strafe_right", self.KEY_STRAFE_RIGHT)
-            self.KEY_ASCEND = self._key_from_cfg(cfg, "keyboard", "key_ascend", self.KEY_ASCEND)
-            self.KEY_DESCEND = self._key_from_cfg(cfg, "keyboard", "key_descend", self.KEY_DESCEND)
-            self.KEY_MODE_TOGGLE = self._key_from_cfg(cfg, "keyboard", "key_mode_toggle", self.KEY_MODE_TOGGLE)
-            self.KEY_MODE_REVERSE = self._key_from_cfg(cfg, "keyboard", "key_mode_reverse", self.KEY_MODE_REVERSE)
-            self.KEY_CLAW_OPEN = self._key_from_cfg(cfg, "keyboard", "key_claw_open", self.KEY_CLAW_OPEN)
-            self.KEY_CLAW_CLOSE = self._key_from_cfg(cfg, "keyboard", "key_claw_close", self.KEY_CLAW_CLOSE)
-            self.KEY_SNAPSHOT = self._key_from_cfg(cfg, "keyboard", "key_snapshot", self.KEY_SNAPSHOT)
-            self.KEY_RECORD = self._key_from_cfg(cfg, "keyboard", "key_record", self.KEY_RECORD)
+        if keyboard_cfg:
+            self.KEY_FORWARD = self._key_from_dict(keyboard_cfg, "key_forward", self.KEY_FORWARD)
+            self.KEY_BACKWARD = self._key_from_dict(keyboard_cfg, "key_backward", self.KEY_BACKWARD)
+            self.KEY_YAW_LEFT = self._key_from_dict(keyboard_cfg, "key_yaw_left", self.KEY_YAW_LEFT)
+            self.KEY_YAW_RIGHT = self._key_from_dict(keyboard_cfg, "key_yaw_right", self.KEY_YAW_RIGHT)
+            self.KEY_STRAFE_LEFT = self._key_from_dict(keyboard_cfg, "key_strafe_left", self.KEY_STRAFE_LEFT)
+            self.KEY_STRAFE_RIGHT = self._key_from_dict(keyboard_cfg, "key_strafe_right", self.KEY_STRAFE_RIGHT)
+            self.KEY_ASCEND = self._key_from_dict(keyboard_cfg, "key_ascend", self.KEY_ASCEND)
+            self.KEY_DESCEND = self._key_from_dict(keyboard_cfg, "key_descend", self.KEY_DESCEND)
+            self.KEY_MODE_TOGGLE = self._key_from_dict(keyboard_cfg, "key_mode_toggle", self.KEY_MODE_TOGGLE)
+            self.KEY_MODE_REVERSE = self._key_from_dict(keyboard_cfg, "key_mode_reverse", self.KEY_MODE_REVERSE)
+            self.KEY_CLAW_OPEN = self._key_from_dict(keyboard_cfg, "key_claw_open", self.KEY_CLAW_OPEN)
+            self.KEY_CLAW_CLOSE = self._key_from_dict(keyboard_cfg, "key_claw_close", self.KEY_CLAW_CLOSE)
+            self.KEY_SNAPSHOT = self._key_from_dict(keyboard_cfg, "key_snapshot", self.KEY_SNAPSHOT)
+            self.KEY_RECORD = self._key_from_dict(keyboard_cfg, "key_record", self.KEY_RECORD)
 
         # ── 速度档位 ──
-        if cfg.has_section("speed_modes"):
+        if speed_cfg:
             for i in range(3):
-                rate = cfg.getfloat("speed_modes", f"mode{i}_rate", fallback=list(self._mode_rates.values())[i])
-                name = cfg.get("speed_modes", f"mode{i}_name", fallback=list(self._mode_names.values())[i])
+                rate = float(speed_cfg.get(f"mode{i}_rate", list(self._mode_rates.values())[i]))
+                name = speed_cfg.get(f"mode{i}_name", list(self._mode_names.values())[i])
                 mode = SpeedMode(i)
                 self._mode_rates[mode] = rate
                 self._mode_names[mode] = name
@@ -230,9 +235,9 @@ class JoystickController:
     }
 
     @staticmethod
-    def _key_from_cfg(cfg: configparser.ConfigParser, section: str, key: str, default: int) -> int:
-        """将配置中的按键名转为 pygame 键码（支持动态反射 + 覆盖表）"""
-        name = cfg.get(section, key, fallback="")
+    def _key_from_dict(keyboard_cfg: dict, key: str, default: int) -> int:
+        """从键盘配置字典中解析按键名 → pygame 键码"""
+        name = keyboard_cfg.get(key, "")
         if not name:
             return default
 
@@ -385,7 +390,7 @@ class JoystickController:
             setattr(self, pressed_time_attr, None)
             setattr(self, handled_attr, False)
 
-    # ── 手柄按键 ──
+    # ── 手柄按键处理（下降沿触发）──
     def _handle_joystick_buttons(self) -> None:
         """处理手柄按键（X 模式切换、LB/RB 夹爪）"""
         joy = self._joystick
@@ -415,7 +420,7 @@ class JoystickController:
             self._arm_angle = self.ARM_CLOSE
         self._rb_prev = rb_now
 
-    # ── 键盘 ──
+    # ── 键盘轴模拟（按下即满量程，无渐变）──
     def _handle_keyboard_axes(self) -> None:
         """读取键盘状态（基于事件追踪），模拟摇杆轴 —— 按下即输出最大值"""
         ks = self._key_state
@@ -434,8 +439,8 @@ class JoystickController:
         if ks.get(self.KEY_YAW_RIGHT, False):    self._key_axes["yaw"] += 1.0
         if ks.get(self.KEY_YAW_LEFT, False):     self._key_axes["yaw"] -= 1.0
 
+    # ── 键盘按键处理（模式切换、夹爪、截图、录像，基于下降沿）──
     def _handle_keyboard_buttons(self) -> None:
-        """处理键盘按键（模式切换、夹爪）—— 基于事件追踪"""
         ks = self._key_state
 
         # 模式切换 — 支持独立 toggle / reverse 键

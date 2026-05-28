@@ -1,14 +1,11 @@
 """
-传感器数据解析模块 —— 解析上行数据帧，实现过流检测与统计。
+传感器解析 —— 上行帧字段提取 + 过流监控。
 
-上行帧格式（15 字节，小端序）：
-  Byte  0~ 1: 帧头  0xFA 0xAF
-  Byte  2   : 帧类型 uint8（0x53 = ASCII 'S'，代表传感器数据）
-  Byte  3~ 6: 温度 float LE（°C）
-  Byte  7   : 进水检测 uint8（0=正常，非0=告警）
-  Byte  8~11: 电流 float LE（A）
-  Byte 12   : 异或校验 uint8（对字节2~11逐字节异或）
-  Byte 13~14: 帧尾  0xFB 0xBF
+上行帧 15B (0x53 'S'): 温度 / 进水检测 / 电流
+
+拆分为两个独立类:
+  SensorParser     — 纯函数，帧 → 结构化数据
+  OvercurrentMonitor — 状态机，累计过流时长 + 回调通知
 """
 
 import struct
@@ -37,12 +34,7 @@ class SensorData:
 # ════════════════════════════════════════════════════════
 
 class SensorParser:
-    """
-    上行传感器数据帧字段解析器。
-
-    使用方式：由 SerialComm 通过 CommandBuffer 提取完整帧后，
-    将 15 字节原始帧传入 parse() 提取各字段。
-    """
+    """上行帧解析 —— 纯静态方法，输入 bytes 输出 SensorData"""
 
     @staticmethod
     def parse(frame: bytes) -> SensorData:
@@ -72,10 +64,10 @@ class SensorParser:
 
 class OvercurrentMonitor:
     """
-    过流保护监控器。
-    - 根据电流阈值判断当前是否过流
-    - 累计总过流时间（秒）
-    - 支持回调通知
+    过流状态机 —— 检测电流越限，累计过流时长。
+
+    两个状态: 正常 ↔ 过流
+    进入/退出时触发回调通知 GUI。
     """
 
     def __init__(self, threshold: float = 10.0):

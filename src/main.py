@@ -1,12 +1,15 @@
 """
-ROV 控制站 —— 程序入口
+程序入口 —— 组装 AppCore + MainWindow，启动 Qt 事件循环。
 
-用法:
-    python src/main.py
+启动流程:
+  1. 创建 QApplication
+  2. AppCore(cfg_path) 加载全部配置
+  3. MainWindow(keyboard_cfg) 构建界面
+  4. 绑定回调: AppCore ←→ MainWindow
+  5. QTimer 驱动 125Hz 控制循环 + 50Hz UI 刷新
 
-所有参数在 config/config.ini 中配置。
+职责边界: 只做组装，不读取配置、不处理业务逻辑。
 """
-import configparser
 import os
 import sys
 import time
@@ -21,27 +24,6 @@ from PySide6.QtCore import QTimer
 
 from src.AppCore import AppCore, AppCallbacks
 from src.gui import MainWindow
-from src.camera import Camera
-from src.joystick import ControlState
-from src.utils import Stopwatch
-
-# ── 媒体输出目录 ──
-def _ensure_output_dir(key: str, default: str) -> str:
-    """从 config.ini 读取输出路径，确保目录存在"""
-    cfg = configparser.ConfigParser()
-    cfg_path = os.path.join(_BASE_DIR, "config", "config.ini")
-    d = default
-    if os.path.exists(cfg_path):
-        cfg.read(cfg_path, encoding="utf-8")
-        try:
-            d = cfg.get("media", key, fallback=default)
-        except Exception:
-            pass
-    if not os.path.isabs(d):
-        d = os.path.join(_BASE_DIR, d)
-    os.makedirs(d, exist_ok=True)
-    return d
-
 
 # ── 主函数 ──
 def main():
@@ -49,9 +31,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("ROV Control Station")
 
-    # ── 后端核心 ──
-    core = AppCore()
-    window = MainWindow()
+    # ── 后端核心（AppCore 统一加载所有配置）──
+    cfg_path = os.path.join(_BASE_DIR, "config", "config.ini")
+    core = AppCore(cfg_path)
+    window = MainWindow(core.keyboard_config)
 
     # ── 回调绑定 ──
     callbacks = AppCallbacks()
@@ -65,8 +48,12 @@ def main():
     # ── 按钮事件 ──
     snapshot_counter = 0
 
-    screenshot_dir = _ensure_output_dir("screenshot_dir", "screenshots")
-    record_dir = _ensure_output_dir("record_dir", "recordings")
+    # 媒体输出路径（由 AppCore 从 config.ini 统一读取）
+    media = core.media_config
+    screenshot_dir = os.path.join(_BASE_DIR, media.get("screenshot_dir", "screenshots"))
+    record_dir = os.path.join(_BASE_DIR, media.get("record_dir", "recordings"))
+    os.makedirs(screenshot_dir, exist_ok=True)
+    os.makedirs(record_dir, exist_ok=True)
 
     def on_snapshot():
         nonlocal snapshot_counter
@@ -111,11 +98,9 @@ def main():
         jc.on_snapshot = on_snapshot
         jc.on_record_toggle = lambda: on_record_toggle(not core.is_recording)
 
-    # ── 主循环定时器（频率从 config.ini 读取） ──
+    # ── 主循环定时器（频率由 AppCore 从 config.ini 统一读取）──
     loop_timer = QTimer()
-    cfg = configparser.ConfigParser()
-    cfg.read(os.path.join(_BASE_DIR, "config", "config.ini"), encoding="utf-8")
-    freq = cfg.getfloat("control", "frequency", fallback=125.0) if cfg.has_section("control") else 125.0
+    freq = core.control_frequency
     loop_timer.setInterval(int(1000.0 / freq))
     fps_update_time = time.time()
     fps_frame_count = 0

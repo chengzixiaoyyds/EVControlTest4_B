@@ -1,7 +1,10 @@
 """
-UI 编译脚本 —— 将 .ui 编译为 Python，并自动修复 PySide6 6.10+ 的枚举兼容问题。
+.ui → .py 编译 —— 调用 pyside6-uic + 自动修复枚举兼容。
 
 用法:  python ui/compile_ui.py
+
+PySide6 6.10+ 废弃了 Qt.AlignCenter 等旧枚举，
+本脚本在编译后自动替换为新式命名。
 """
 import subprocess
 from pathlib import Path
