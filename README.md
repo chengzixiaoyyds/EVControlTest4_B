@@ -144,6 +144,8 @@ checksum = byte[2] ^ byte[3] ^ ... ^ byte[N-3]
 
 ```
 rov-control-station/
+├── config/
+│   └── config.ini           # 全部可调参数（按键、轴、档位、串口、摄像头等）
 ├── src/
 │   ├── main.py              # 程序入口
 │   ├── AppCore.py           # 应用核心聚合层，统一管理手柄/串口/传感器/摄像头
@@ -153,11 +155,10 @@ rov-control-station/
 │   ├── sensor/              # 传感器解析 + 过流监控模块
 │   ├── camera/              # 摄像头采集 + 录像截屏控制模块
 │   └── utils/               # 工具（帧率限制器、秒表）
-├── config/
-│   └── config.ini           # 全部可调参数（按键、轴、档位、串口、摄像头等）
 ├── ui/
-│   ├── main_window.ui       # Qt Designer 界面布局源文件
-│   └── compile_ui.py        # 一键编译 .ui → Python 并自动修复枚举兼容
+│   ├── compile_ui.py        # 一键编译 .ui → Python 并自动修复枚举兼容
+│   └── main_window.ui       # Qt Designer 界面布局源文件
+├── LICENSE
 ├── README.md
 └── requirements.txt
 ```
