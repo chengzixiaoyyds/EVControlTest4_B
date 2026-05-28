@@ -245,6 +245,3 @@ class Camera:
         self._record_path = ""
         return path
 
-    # ── 资源释放 ──
-    def __del__(self) -> None:
-        self.stop()

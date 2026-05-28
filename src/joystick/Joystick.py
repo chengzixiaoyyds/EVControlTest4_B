@@ -106,10 +106,10 @@ class JoystickController:
     # ── 轴配置（每轴独立） ──
     # {name: {"axis": int, "max": float, "deadzone": float}}
     _axis_cfg = {
-        "y":   {"axis": 1, "max": 30.0,  "deadzone": 0.05},
-        "x":   {"axis": 2, "max": 30.0,  "deadzone": 0.05},
-        "z":   {"axis": 3, "max": 30.0,  "deadzone": 0.05},
-        "yaw": {"axis": 0, "max": 10.0,  "deadzone": 0.05},
+        "y":   {"axis": 1, "max": 5000.0,  "deadzone": 0.05},
+        "x":   {"axis": 2, "max": 6000.0,  "deadzone": 0.05},
+        "z":   {"axis": 3, "max": 6000.0,  "deadzone": 0.05},
+        "yaw": {"axis": 0, "max": 1000.0,  "deadzone": 0.05},
     }
 
     ARM_OPEN = 0

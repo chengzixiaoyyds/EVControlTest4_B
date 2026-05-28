@@ -131,12 +131,20 @@ checksum = byte[2] ^ byte[3] ^ ... ^ byte[N-3]
 |----|------|
 | `[keyboard]` | 键盘按键映射 |
 | `[joystick]` | 手柄轴/按钮映射 |
-| `[speed_modes]` | 速度档位（SLOW/MEDIUM/FAST） |
+| `[speed_modes]` | 速度档位，每档独立可配名称与推力比例 |
 | `[serial]` | 串口通信参数 |
 | `[camera]` | 摄像头参数 |
 | `[control]` | 控制循环频率 |
 | `[overcurrent]` | 过流保护阈值 |
 | `[media]` | 截图/录像输出路径 |
+
+**速度档位说明**：按 X 键循环切换，控制量 = 摇杆值 × 轴最大值 × 档位比例。
+
+| 档位 | 配置项 | 默认比例 | 默认名称 | 用途 |
+|------|--------|---------|---------|------|
+| 0 | `mode0_name` / `mode0_rate` | 30% | SLOW | 精确定位、对接 |
+| 1 | `mode1_name` / `mode1_rate` | 60% | MEDIUM | 一般巡检、作业 |
+| 2 | `mode2_name` / `mode2_rate` | 100% | FAST | 快速移动、紧急响应 |
 
 ---
 

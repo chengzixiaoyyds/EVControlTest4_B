@@ -78,7 +78,8 @@ def main():
     def on_record_toggle(checked: bool):
         if checked:
             path = os.path.join(record_dir, f"record_{time.strftime('%Y%m%d_%H%M%S')}.avi")
-            core.start_recording(path)
+            if not core.start_recording(path):
+                window.btnRecord.setChecked(False)
         else:
             core.stop_recording()
 

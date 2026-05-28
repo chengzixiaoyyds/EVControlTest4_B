@@ -175,5 +175,5 @@ class OvercurrentMonitor:
         return {
             "is_overcurrent": self._is_overcurrent,
             "threshold": self._threshold,
-            "total_overcurrent_time": self._total_overcurrent_time,
+            "total_overcurrent_time": self.total_overcurrent_time,
         }
