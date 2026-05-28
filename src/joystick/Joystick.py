@@ -66,6 +66,7 @@ class ControlState:
     yaw_torque: float = 0.0     # Yaw 扭矩 (N·m)，顺时针为正
     arm_angle: int = 0x00        # 机械臂角度 0x00夹紧~0x80松开
     mode: SpeedMode = SpeedMode.SLOW
+    mode_name: str = "SLOW"      # 当前模式名称（由 JoystickController 填充）
     claw_open: bool = False     # 夹爪是否张开
 
 
@@ -127,6 +128,10 @@ class JoystickController:
         self._mode = SpeedMode.SLOW
         self._claw_open = False
         self._arm_angle = self.ARM_CLOSE
+
+        # 速度档位（实例级，从 config.ini 加载，初始使用模块默认值）
+        self._mode_names = dict(MODE_NAMES)
+        self._mode_rates = dict(MODE_RATES)
 
         # 模式切换键状态
         self._mode_key_pressed_time: Optional[float] = None
@@ -201,18 +206,45 @@ class JoystickController:
         # ── 速度档位 ──
         if cfg.has_section("speed_modes"):
             for i in range(3):
-                rate = cfg.getfloat("speed_modes", f"mode{i}_rate", fallback=list(MODE_RATES.values())[i])
-                name = cfg.get("speed_modes", f"mode{i}_name", fallback=list(MODE_NAMES.values())[i])
+                rate = cfg.getfloat("speed_modes", f"mode{i}_rate", fallback=list(self._mode_rates.values())[i])
+                name = cfg.get("speed_modes", f"mode{i}_name", fallback=list(self._mode_names.values())[i])
                 mode = SpeedMode(i)
+                self._mode_rates[mode] = rate
+                self._mode_names[mode] = name
+                # 同步更新模块级字典（供 MainWindow 等外部模块读取）
                 MODE_RATES[mode] = rate
                 MODE_NAMES[mode] = name
 
+    # ── pygame 键名覆盖（pygame 命名不遵循 K_<name> 规则时使用）──
+    _PG_KEY_OVERRIDE: dict[str, str] = {
+        "Shift":        "K_LSHIFT",        # pygame 只有 K_LSHIFT/K_RSHIFT
+        "Control":      "K_LCTRL",         # pygame 只有 K_LCTRL/K_RCTRL
+        "Alt":          "K_LALT",          # pygame 只有 K_LALT/K_RALT
+        "Meta":         "K_LMETA",         # pygame 只有 K_LMETA/K_RMETA
+        "Enter":        "K_RETURN",        # pygame 用 K_RETURN
+        "Equal":        "K_EQUALS",        # pygame 用 K_EQUALS
+        "BracketLeft":  "K_LEFTBRACKET",
+        "BracketRight": "K_RIGHTBRACKET",
+        "Backquote":    "K_BACKQUOTE",
+        "QuoteDbl":     "K_QUOTEDBL",
+    }
+
     @staticmethod
     def _key_from_cfg(cfg: configparser.ConfigParser, section: str, key: str, default: int) -> int:
-        """将配置中的按键名转为 pygame 键码"""
+        """将配置中的按键名转为 pygame 键码（支持动态反射 + 覆盖表）"""
         name = cfg.get(section, key, fallback="")
         if not name:
             return default
+
+        # 1) 覆盖表优先
+        override = JoystickController._PG_KEY_OVERRIDE.get(name)
+        if override:
+            try:
+                return getattr(pygame, override)
+            except AttributeError:
+                return default
+
+        # 2) 动态反射：先小写再大写
         try:
             return getattr(pygame, f"K_{name.lower()}")
         except AttributeError:
@@ -249,7 +281,7 @@ class JoystickController:
 
     @property
     def mode_name(self) -> str:
-        return MODE_NAMES.get(self._mode, "UNKNOWN")
+        return self._mode_names.get(self._mode, "UNKNOWN")
 
     @property
     def claw_open(self) -> bool:
@@ -294,7 +326,7 @@ class JoystickController:
         ry = self._deadzone(ry_raw, cfg["z"]["deadzone"])
 
         # 速度系数
-        rate = MODE_RATES[self._mode]
+        rate = self._mode_rates[self._mode]
 
         # 映射到 ROV 控制量（WND 坐标系）
         # max 值的符号决定方向：正值 = 摇杆正向→ROV正向
@@ -310,6 +342,7 @@ class JoystickController:
             yaw_torque=yaw_torque,
             arm_angle=self._arm_angle,
             mode=self._mode,
+            mode_name=self._mode_names.get(self._mode, "UNKNOWN"),
             claw_open=self._claw_open,
         )
 

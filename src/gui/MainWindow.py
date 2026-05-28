@@ -38,23 +38,22 @@ from ..joystick import ControlState, SpeedMode, MODE_NAMES
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DEFAULT_CONFIG = os.path.join(_BASE_DIR, "config", "config.ini")
 
-# ── 配置键名 → (Qt.Key, pygame.K_) 查找表 ──
-_KEY_NAME_MAP: dict[str, tuple] = {
-    "W":     (Qt.Key.Key_W,     pygame.K_w),
-    "A":     (Qt.Key.Key_A,     pygame.K_a),
-    "S":     (Qt.Key.Key_S,     pygame.K_s),
-    "D":     (Qt.Key.Key_D,     pygame.K_d),
-    "X":     (Qt.Key.Key_X,     pygame.K_x),
-    "Q":     (Qt.Key.Key_Q,     pygame.K_q),
-    "E":     (Qt.Key.Key_E,     pygame.K_e),
-    "P":     (Qt.Key.Key_P,     pygame.K_p),
-    "R":     (Qt.Key.Key_R,     pygame.K_r),
-    "Up":    (Qt.Key.Key_Up,    pygame.K_UP),
-    "Down":  (Qt.Key.Key_Down,  pygame.K_DOWN),
-    "Left":  (Qt.Key.Key_Left,  pygame.K_LEFT),
-    "Right": (Qt.Key.Key_Right, pygame.K_RIGHT),
-    "Space": (Qt.Key.Key_Space, pygame.K_SPACE),
-    "Shift": (Qt.Key.Key_Shift, pygame.K_LSHIFT),
+# ── 键名覆盖表 ──
+# 格式: {config.ini 键名: (Qt.Key 属性名, pygame 属性名)}
+# 仅收录 Qt 或 pygame 命名不遵循 Key_<name> / K_<name> 规则的按键。
+# 未列出的按键通过动态反射自动解析（覆盖 ~95% 的场景）。
+_KEY_OVERRIDE: dict[str, tuple[str, str]] = {
+    # config 键名     → (Qt.Key 属性,        pygame 属性)
+    "Shift":           ("Key_Shift",        "K_LSHIFT"),         # pygame 无 K_SHIFT
+    "Control":         ("Key_Control",      "K_LCTRL"),          # pygame 无 K_CONTROL
+    "Alt":             ("Key_Alt",          "K_LALT"),           # pygame 无 K_ALT
+    "Meta":            ("Key_Meta",         "K_LMETA"),          # pygame 无 K_META
+    "Enter":           ("Key_Enter",        "K_RETURN"),         # pygame 用 K_RETURN
+    "Equal":           ("Key_Equal",        "K_EQUALS"),         # pygame 用 K_EQUALS
+    "BracketLeft":     ("Key_BracketLeft",  "K_LEFTBRACKET"),    # pygame 命名不同
+    "BracketRight":    ("Key_BracketRight", "K_RIGHTBRACKET"),   # pygame 命名不同
+    "Backquote":       ("Key_QuoteLeft",    "K_BACKQUOTE"),      # Qt 用 Key_QuoteLeft
+    "QuoteDbl":        ("Key_QuoteDbl",     "K_QUOTEDBL"),       # Qt/pygame 均非标准名
 }
 
 
@@ -337,6 +336,45 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.lblClaw.setStyleSheet(S_YELLOW + "; font-size: 14px;")
 
     # ── 键盘映射（从 config.ini 加载）──
+    @staticmethod
+    def _resolve_key_name(name: str):
+        """
+        从 config.ini 的按键名动态解析为 (Qt.Key, pygame.K) 元组。
+        优先查 _KEY_OVERRIDE 覆盖表，否则通过反射从 Qt/pygame 实时获取。
+        """
+        if not name:
+            return None
+
+        override = _KEY_OVERRIDE.get(name)
+        if override:
+            qt_attr, pg_attr = override
+            try:
+                qt_key = getattr(Qt.Key, qt_attr)
+            except AttributeError:
+                return None
+            try:
+                pg_key = getattr(pygame, pg_attr)
+            except AttributeError:
+                return None
+            return (qt_key, pg_key)
+
+        # 动态解析：Qt.Key.Key_<name>
+        try:
+            qt_key = getattr(Qt.Key, f"Key_{name}")
+        except AttributeError:
+            return None
+
+        # 动态解析：pygame.K_<name>（先小写，再大写）
+        try:
+            pg_key = getattr(pygame, f"K_{name.lower()}")
+        except AttributeError:
+            try:
+                pg_key = getattr(pygame, f"K_{name.upper()}")
+            except AttributeError:
+                return None
+
+        return (qt_key, pg_key)
+
     def _load_key_mapping(self) -> None:
         """从 config.ini 读取所有键盘映射，构建 Qt→pygame 键码表"""
         cfg = configparser.ConfigParser()
@@ -357,8 +395,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         ]
         for name in cfg_keys:
             val = cfg.get("keyboard", name, fallback="")
-            if val and val in _KEY_NAME_MAP:
-                qt_key, pg_key = _KEY_NAME_MAP[val]
+            resolved = self._resolve_key_name(val)
+            if resolved is not None:
+                qt_key, pg_key = resolved
                 self._qt_to_pygame[qt_key.value] = pg_key
 
     def keyPressEvent(self, event: QKeyEvent) -> None:

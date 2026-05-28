@@ -46,6 +46,7 @@ class Camera:
         # 录像
         self._video_writer: Optional[cv2.VideoWriter] = None
         self._recording = False
+        self._record_lock = threading.Lock()  # 保护录像状态切换
         self._record_path: str = ""
         self._record_start_time: float = 0.0
 
@@ -159,12 +160,13 @@ class Camera:
             with self._frame_lock:
                 self._frame = frame
 
-            # 录像写入（无需锁，读写分离）
-            if self._recording and self._video_writer is not None:
-                try:
-                    self._video_writer.write(frame)
-                except Exception:
-                    pass
+            # 录像写入（加锁保护，防止主线程并发关闭录像）
+            with self._record_lock:
+                if self._recording and self._video_writer is not None:
+                    try:
+                        self._video_writer.write(frame)
+                    except Exception:
+                        pass
 
             # FPS 统计
             self._frame_count += 1
@@ -191,14 +193,16 @@ class Camera:
     @property
     def is_recording(self) -> bool:
         """是否正在录像"""
-        return self._recording
+        with self._record_lock:
+            return self._recording
 
     @property
     def record_duration(self) -> float:
         """当前录像已录制时长（秒）"""
-        if not self._recording:
-            return 0.0
-        return time.time() - self._record_start_time
+        with self._record_lock:
+            if not self._recording:
+                return 0.0
+            return time.time() - self._record_start_time
 
     def start_recording(self, filepath: str, codec: str = "XVID") -> bool:
         """
@@ -212,17 +216,18 @@ class Camera:
             return False
 
         fourcc = cv2.VideoWriter.fourcc(*codec)
-        self._video_writer = cv2.VideoWriter(
+        writer = cv2.VideoWriter(
             filepath, fourcc, self._fps, (self._width, self._height)
         )
-        if not self._video_writer.isOpened():
+        if not writer.isOpened():
             print(f"[Camera] 无法创建视频文件: {filepath}")
-            self._video_writer = None
             return False
 
-        self._recording = True
-        self._record_path = filepath
-        self._record_start_time = time.time()
+        with self._record_lock:
+            self._video_writer = writer
+            self._recording = True
+            self._record_path = filepath
+            self._record_start_time = time.time()
         print(f"[Camera] 开始录像 → {filepath}")
         return True
 
@@ -231,13 +236,15 @@ class Camera:
         停止录像并返回文件路径。
         :return: 录制文件路径；若未在录像则返回空字符串
         """
-        if not self._recording:
-            return ""
-
-        self._recording = False
-        if self._video_writer is not None:
-            self._video_writer.release()
+        with self._record_lock:
+            if not self._recording:
+                return ""
+            self._recording = False
+            writer = self._video_writer
             self._video_writer = None
+
+        if writer is not None:
+            writer.release()
 
         duration = time.time() - self._record_start_time
         print(f"[Camera] 录像已停止 ({duration:.1f}s) → {self._record_path}")

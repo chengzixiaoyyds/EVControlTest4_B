@@ -19,7 +19,7 @@ _IDX_XOR = 12
 class CommandBuffer:
     """循环缓冲区，从串口字节流中解析完整数据帧"""
 
-    BUFFER_SIZE = 256
+    BUFFER_SIZE = 1024
 
     def __init__(self):
         self.buffer = bytearray(self.BUFFER_SIZE)

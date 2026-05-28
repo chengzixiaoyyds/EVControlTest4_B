@@ -31,11 +31,11 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from .joystick import JoystickController, ControlState, SpeedMode, MODE_NAMES
+from .joystick import JoystickController, ControlState, SpeedMode
 from .serial_comm import SerialComm
 from .sensor import SensorParser, SensorData, OvercurrentMonitor
 from .camera import Camera
-from .utils import FrameRateLimiter, Stopwatch
+from .utils import Stopwatch
 
 # ───────── 路径 ─────────
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,9 +92,6 @@ class AppCore:
         self._latest_control: Optional[ControlState] = None
         self._latest_sensor: Optional[SensorData] = None
 
-        # ── 频率控制 ──
-        self._limiter: Optional[FrameRateLimiter] = None
-
         # ── 秒表（用于任务计时等） ──
         self._stopwatch = Stopwatch()
 
@@ -133,10 +130,6 @@ class AppCore:
         启动所有子系统，所有参数从 config.ini 读取。
         :return: 串口是否连接成功
         """
-        # ── 频率控制 ──
-        control_freq = self._get_cfg("control", "frequency", 125.0, float)
-        self._limiter = FrameRateLimiter(control_freq)
-
         # ── 手柄 ──
         self._joystick = JoystickController(self._config_path)
         if self._callbacks.on_joystick_changed:
@@ -170,7 +163,9 @@ class AppCore:
         camera_width = self._get_cfg("camera", "width", 640, int)
         camera_height = self._get_cfg("camera", "height", 480, int)
         self._camera = Camera(camera_id, camera_width, camera_height)
-        self._camera.start()
+        if not self._camera.start():
+            print("[AppCore] 警告: 摄像头启动失败")
+            self._camera = None
 
         return connected
 
@@ -261,19 +256,6 @@ class AppCore:
     def stopwatch(self) -> Stopwatch:
         """获取秒表实例（用于任务计时等）"""
         return self._stopwatch
-
-    # ── 频率控制 ──
-    def wait_frame(self) -> float:
-        """阻塞至下一帧（配合 FrameRateLimiter），返回实际间隔（秒）"""
-        if self._limiter:
-            return self._limiter.wait()
-        time.sleep(0.008)  # 默认 ~125Hz
-        return 0.008
-
-    @property
-    def actual_control_fps(self) -> float:
-        """实际控制循环帧率"""
-        return self._limiter.actual_fps if self._limiter else 0.0
 
     # ── 请求帧定时器 ──
     def _start_request_timer(self) -> None:
