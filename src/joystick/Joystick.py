@@ -64,7 +64,7 @@ class ControlState:
     thrust_x: float = 0.0       # X 推力 (N)，右移为正（预留）
     thrust_z: float = 0.0       # Z 推力 (N)，下潜为正
     yaw_torque: float = 0.0     # Yaw 扭矩 (N·m)，顺时针为正
-    arm_angle: int = 90         # 机械臂角度 0~255
+    arm_angle: int = 0x00        # 机械臂角度 0x00夹紧~0x80松开
     mode: SpeedMode = SpeedMode.SLOW
     claw_open: bool = False     # 夹爪是否张开
 
@@ -103,7 +103,7 @@ class JoystickController:
     KEY_SNAPSHOT = pygame.K_p        # 截图
     KEY_RECORD = pygame.K_r          # 录像
 
-    # ── 轴配置（每轴独立） ──
+    # ── 默认轴配置（每轴独立） ──
     # {name: {"axis": int, "max": float, "deadzone": float}}
     _axis_cfg = {
         "y":   {"axis": 1, "max": 5000.0,  "deadzone": 0.05},
@@ -112,8 +112,8 @@ class JoystickController:
         "yaw": {"axis": 0, "max": 1000.0,  "deadzone": 0.05},
     }
 
-    ARM_OPEN = 0
-    ARM_CLOSE = 180
+    ARM_OPEN = 0x80     # 0x80 松开
+    ARM_CLOSE = 0x00     # 0x00 夹紧
 
     # ── 长按判定 ──
     LONG_PRESS_MS = 400       # 超过此时间视为长按
