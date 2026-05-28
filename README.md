@@ -173,7 +173,7 @@ rov-control-station/
 
 ## 依赖
 
-- PySide6 ≥ 6.5
+- PySide6 ≥ 6.10
 - pygame ≥ 2.5
 - pyserial ≥ 3.5
 - opencv-python ≥ 4.8
