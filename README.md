@@ -153,28 +153,55 @@ checksum = byte[2] ^ byte[3] ^ ... ^ byte[N-3]
 ```
 rov-control-station/
 ├── config/
-│   └── config.ini           # 全部可调参数（按键、轴、档位、串口、摄像头等）
+│   └── config.ini              # 全部可调参数（由 AppCore 统一加载）
 ├── src/
-│   ├── main.py              # 程序入口
-│   ├── AppCore.py           # 应用核心聚合层，统一管理手柄/串口/传感器/摄像头
-│   ├── gui/                 # 界面模块
-│   ├── joystick/            # 手柄/键盘控制模块
-│   ├── serial_comm/         # 串口通信模块
-│   ├── sensor/              # 传感器解析 + 过流监控模块
-│   ├── camera/              # 摄像头采集 + 录像截屏控制模块
-│   └── utils/               # 工具（帧率限制器、秒表）
+│   ├── main.py                 # 程序入口，组装 AppCore + MainWindow
+│   ├── AppCore.py              # 应用核心聚合层，统一管理手柄/串口/传感器/摄像头
+│   ├── camera/
+│   │   └── Camera.py           # 摄像头采集 + 录像截屏控制模块
+│   ├── gui/
+│   │   ├── MainWindow.py       # PySide6 主窗口，纯 UI 层
+│   │   ├── KeyBridge.py        # Qt → pygame 键盘事件桥接
+│   │   └── Ui_MainWindow.py    # Qt Designer 编译生成
+│   ├── joystick/
+│   │   └── Joystick.py         # 手柄/键盘控制模块
+│   ├── serial_comm/
+│   │   ├── Serial.py           # 串口通信模块
+│   │   └── CommandBuffer.py    # 循环缓冲区模块
+│   ├── sensor/
+│   │   └── SensorParser.py     # 传感器解析 + 过流监控模块
+│   └── utils/
+│       ├── Stopwatch.py        # 可暂停恢复的秒表
+│       └── FrameRateLimiter.py # 频率控制器（独立于 pygame）
 ├── ui/
-│   ├── compile_ui.py        # 一键编译 .ui → Python 并自动修复枚举兼容
-│   └── main_window.ui       # Qt Designer 界面布局源文件
-├── LICENSE
-├── README.md
-└── requirements.txt
+│   ├── compile_ui.py           # .ui → .py 编译 + PySide6 6.10+ 枚举兼容修复
+│   └── main_window.ui          # Qt Designer 布局源文件
+├── requirements.txt
+└── README.md
 ```
+
+## 架构
+
+```
+config.ini ──→ AppCore ──┬──→ JoystickController (手柄/键盘)
+                         ├──→ SerialComm (串口通信)
+                         ├──→ OvercurrentMonitor (过流)
+                         └──→ Camera (摄像头)
+                              │
+main.py ──→ MainWindow ←──┘ (回调 + 信号)
+               └── KeyBridge (Qt→pygame 按键转发)
+```
+
+- 只有 `AppCore` 读取 `config.ini`，其余模块通过构造参数接收配置
+- `MainWindow` 是纯 UI 层，不依赖 `pygame`/`configparser`
+- `KeyBridge` 隔离 Qt 与 pygame 的按键事件系统
 
 ## 依赖
 
-- PySide6 ≥ 6.10
-- pygame ≥ 2.5
-- pyserial ≥ 3.5
-- opencv-python ≥ 4.8
-- numpy ≥ 1.24
+| 包 | 版本 | 用途 |
+|----|------|------|
+| PySide6 | ≥ 6.10 | GUI 框架 |
+| pygame | ≥ 2.5 | 手柄/键盘输入 |
+| pyserial | ≥ 3.5 | 串口通信 |
+| opencv-python | ≥ 4.8 | 摄像头采集 |
+| numpy | ≥ 1.24 | 图像数据处理 |
