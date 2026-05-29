@@ -83,14 +83,13 @@ def main():
             window.update_video_frame(frame_rgb)
 
         # 过流累计时间
-        window.update_overcurrent_time(core.overcurrent_status["total_overcurrent_time"])
+        window.update_overcurrent_time(core.overcurrent_time)
 
         # 录像状态
         window.update_record_status(core.is_recording, core.record_duration)
 
         # 秒表
-        sw = core.stopwatch
-        window.update_stopwatch_display(sw.elapsed, sw.is_running)
+        window.update_stopwatch_display(core.stopwatch_elapsed, core.stopwatch_is_running)
 
         # FPS 统计
         fps_frame_count += 1

@@ -151,9 +151,8 @@ class JoystickController:
         self._key_snapshot_prev = False
         self._key_record_prev = False
 
-        # 快捷键回调（由 AppCore.start() 内部绑定）
-        self.on_snapshot: Optional[Callable[[], Any]] = None
-        self.on_record_toggle: Optional[Callable[[], Any]] = None
+        # 自定义动作回调（由 AppCore.start() 绑定，键名为动作标识如 "snapshot"/"record"）
+        self._action_callbacks: dict[str, Callable[[], Any]] = {}
 
         # 键盘轴状态（无手柄时使用）
         self._key_axes = {"y": 0.0, "x": 0.0, "z": 0.0, "yaw": 0.0}
@@ -325,6 +324,14 @@ class JoystickController:
     @property
     def claw_open(self) -> bool:
         return self._claw_open
+
+    # ── 自定义动作 ──
+    def set_action_callback(self, name: str, callback: Callable[[], Any]) -> None:
+        """
+        注册自定义动作回调（如 "snapshot"、"record"）。
+        JoystickController 不关心动作语义，仅负责按键触发时调用。
+        """
+        self._action_callbacks[name] = callback
 
     # ── 主更新 ──
     def update(self) -> ControlState:
@@ -512,18 +519,20 @@ class JoystickController:
             self._arm_angle = self.ARM_CLOSE
         self._key_claw_close_prev = e_now
 
-        # P — 截图（下降沿）
+        # P — 自定义动作（由 AppCore 绑定语义）—— 下降沿触发
         p_now = ks.get(self.KEY_SNAPSHOT, False)
         if self._key_snapshot_prev and not p_now:
-            if self.on_snapshot:
-                self.on_snapshot()
+            cb = self._action_callbacks.get("snapshot")
+            if cb:
+                cb()
         self._key_snapshot_prev = p_now
 
-        # R — 录像（下降沿）
+        # R — 自定义动作（由 AppCore 绑定语义）—— 下降沿触发
         r_now = ks.get(self.KEY_RECORD, False)
         if self._key_record_prev and not r_now:
-            if self.on_record_toggle:
-                self.on_record_toggle()
+            cb = self._action_callbacks.get("record")
+            if cb:
+                cb()
         self._key_record_prev = r_now
 
     # ── 资源释放 ──

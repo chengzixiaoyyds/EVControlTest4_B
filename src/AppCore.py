@@ -87,8 +87,8 @@ class AppCore:
         self._screenshot_dir = ""
         self._record_dir = ""
 
-        # ── 请求帧定时发送 ──
-        self._request_interval = 0.2  # 200ms 发送一次请求帧
+        # ── 请求帧定时发送（间隔由 config.ini [serial] request_interval 控制）──
+        self._request_interval = 0.2  # 默认值，start() 中从 config 覆盖
         self._request_timer_thread: Optional[threading.Thread] = None
         self._request_timer_stop = threading.Event()
 
@@ -164,6 +164,8 @@ class AppCore:
         timeout = self._get_cfg("serial", "timeout", 0.05, float)
         poll_interval = self._get_cfg("serial", "poll_interval", 0.001, float)
         reconnect_interval = self._get_cfg("serial", "reconnect_interval", 2.0, float)
+        request_interval = self._get_cfg("serial", "request_interval", 0.2, float)
+        self._request_interval = request_interval
         self._serial = SerialComm(port, baudrate, timeout, poll_interval, reconnect_interval)
         self._serial.set_callback(self._on_serial_frame)
         self._serial.set_status_callback(self._on_serial_status)
@@ -192,8 +194,8 @@ class AppCore:
 
         # ── 快捷键绑定（内部完成，不暴露给 main.py）──
         if self._joystick:
-            self._joystick.on_snapshot = self.snapshot
-            self._joystick.on_record_toggle = self.toggle_recording
+            self._joystick.set_action_callback("snapshot", self.snapshot)
+            self._joystick.set_action_callback("record", self.toggle_recording)
 
         return connected
 
@@ -324,6 +326,16 @@ class AppCore:
         """重置秒表"""
         self._stopwatch.reset()
 
+    @property
+    def stopwatch_elapsed(self) -> float:
+        """秒表已用时间（秒），供主循环读取，避免穿透 AppCore 直接访问子对象"""
+        return self._stopwatch.elapsed
+
+    @property
+    def stopwatch_is_running(self) -> bool:
+        """秒表是否正在运行"""
+        return self._stopwatch.is_running
+
     # === 请求帧定时器 ===
     def _start_request_timer(self) -> None:
         """启动后台线程，每 200ms 发送下行请求帧(0x52 'R')，触发下位机回传传感器数据"""
@@ -418,6 +430,13 @@ class AppCore:
         if self._overcurrent:
             return self._overcurrent.get_status_dict()
         return {"is_overcurrent": False, "threshold": 0.0, "total_overcurrent_time": 0.0}
+
+    @property
+    def overcurrent_time(self) -> float:
+        """过流累计总时间（秒），供主循环直接读取，避免硬编码字典键"""
+        if self._overcurrent:
+            return self._overcurrent.total_overcurrent_time
+        return 0.0
 
     @property
     def camera_actual_fps(self) -> float:

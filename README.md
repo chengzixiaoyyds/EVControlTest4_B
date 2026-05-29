@@ -133,7 +133,7 @@ checksum = byte[2] ^ byte[3] ^ ... ^ byte[N-3]
 | `[joystick]` | 手柄通用设置 + 热插拔检测间隔 (`poll_interval`) |
 | `[x]` `[y]` `[z]` `[yaw]` | 每轴独立配置（轴索引、最大推力、死区） |
 | `[speed_modes]` | 速度档位，每档独立可配名称与推力比例 |
-| `[serial]` | 串口通信参数 + 断线重连间隔 (`reconnect_interval`) |
+| `[serial]` | 串口通信参数 + 断线重连间隔 (`reconnect_interval`) + 请求帧发送间隔 (`request_interval`) |
 | `[camera]` | 摄像头参数 |
 | `[control]` | 控制循环频率 |
 | `[overcurrent]` | 过流保护阈值 |
