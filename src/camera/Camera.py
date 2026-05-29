@@ -155,9 +155,12 @@ class Camera:
 
             ret, frame = self._cap.read()
             if not ret or frame is None:
-                # 尝试重连
+                # 尝试重连：先置空再释放，避免其他线程访问已释放对象
                 print("[Camera] 帧读取失败，尝试重连...")
-                self._cap.release()
+                old_cap = self._cap
+                self._cap = None
+                if old_cap is not None:
+                    old_cap.release()
                 self._cap = cv2.VideoCapture(self._camera_id)
                 time.sleep(0.5)
                 continue

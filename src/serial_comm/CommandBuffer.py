@@ -44,10 +44,14 @@ class CommandBuffer:
         return self.BUFFER_SIZE - self.get_length()
 
     def write(self, data: bytes) -> int:
-        """写入数据，返回实际写入的字节数（空间不足返回0）"""
+        """写入数据，返回实际写入的字节数；缓冲区满时丢弃旧数据腾出空间"""
         length = len(data)
         if self.get_remain() < length:
-            return 0
+            # 缓冲区满：丢弃最旧的一帧（15字节），为新数据腾出空间
+            print(f"[CommandBuffer] 缓冲区满，丢弃旧数据以腾出空间")
+            self._add_read_index(_FRAME_LEN)
+            if self.get_remain() < length:
+                return 0  # 仍然不够（数据过大），放弃写入
 
         first_part = self.BUFFER_SIZE - self.write_index
         if length <= first_part:

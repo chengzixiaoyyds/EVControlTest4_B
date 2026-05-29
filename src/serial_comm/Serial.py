@@ -143,14 +143,15 @@ class SerialComm:
             return False
 
     def _close_port(self) -> None:
-        """安全关闭串口"""
-        if self._ser is not None:
-            try:
-                if self._ser.is_open:
-                    self._ser.close()
-            except Exception:
-                pass
-            self._ser = None
+        """安全关闭串口（线程安全）"""
+        with self._lock:
+            if self._ser is not None:
+                try:
+                    if self._ser.is_open:
+                        self._ser.close()
+                except Exception:
+                    pass
+                self._ser = None
 
     # ---------- 连接管理线程（接收 + 断线重连） ----------
     def _connection_manager(self) -> None:
@@ -187,7 +188,9 @@ class SerialComm:
                     else:
                         data = b''
                 if data:
-                    self._buffer.write(data)
+                    written = self._buffer.write(data)
+                    if written == 0:
+                        print("[SerialComm] 警告: 缓冲区写入失败，数据丢失")
                     while True:
                         frame = self._buffer.get_command()
                         if frame is None:
@@ -241,15 +244,15 @@ class SerialComm:
         return _HEADER + payload + bytes([xor_val]) + _TAIL
 
     def send_frame(self, frame: bytes) -> bool:
-        """发送一帧数据，成功返回 True"""
-        ser = self._ser
-        if ser is None or not ser.is_open:
-            return False
-        try:
-            with self._lock:
+        """发送一帧数据，成功返回 True（线程安全）"""
+        with self._lock:
+            ser = self._ser
+            if ser is None or not ser.is_open:
+                return False
+            try:
                 ser.write(frame)
-                #print(f"\r[SerialComm] 已发送帧: {frame.hex()}", end='')
-            return True
-        except serial.SerialException:
-            self._close_port()
-            return False
+                return True
+            except serial.SerialException:
+                pass  # 端口异常，在锁外关闭避免持锁过长
+        self._close_port()
+        return False

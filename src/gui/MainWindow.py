@@ -119,12 +119,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # ════════════════════════════════════════════════
 
     def set_callbacks_ref(self, callbacks) -> None:
-        callbacks.on_sensor_data        = self._cb_sensor
-        callbacks.on_overcurrent_enter  = self._cb_oc_enter
-        callbacks.on_overcurrent_exit   = self._cb_oc_exit
-        callbacks.on_connection_changed = self._cb_serial
-        callbacks.on_joystick_changed   = self._cb_joystick
-        callbacks.on_mode_names         = self.update_mode_names
+        callbacks.on_sensor_data             = self._cb_sensor
+        callbacks.on_overcurrent_enter       = self._cb_oc_enter
+        callbacks.on_overcurrent_exit        = self._cb_oc_exit
+        callbacks.on_overcurrent_threshold   = self.update_overcurrent_threshold
+        callbacks.on_connection_changed      = self._cb_serial
+        callbacks.on_joystick_changed        = self._cb_joystick
+        callbacks.on_mode_names              = self.update_mode_names
 
     def start_ui_timer(self) -> None:
         self._ui_timer.start()
@@ -157,6 +158,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """同步速度档位名称（由 AppCore 从 JoystickController 获取后传入）"""
         self._mode_names.update(names)
 
+    def update_overcurrent_threshold(self, threshold: float) -> None:
+        """同步过流阈值到 UI 显示"""
+        self.lblOcThreshold.setText(f"{threshold:.1f} A")
+
     # ── 视频帧显示（RGB numpy → QPixmap）──
     def update_video_frame(self, frame_rgb: Optional[np.ndarray]) -> None:
         """将 RGB numpy 数组显示到 videoLabel"""
@@ -182,7 +187,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """更新 FPS 缓存值（在 _on_tick 中刷新显示）"""
         self._fps = fps
 
-    # ── 录像状态（按钮文字 + 状态栏计时）──
+    # ── 录像状态（按钮文字 + 状态栏计时 + 按钮按下状态同步）──
     def update_record_status(self, recording: bool, duration: float = 0.0) -> None:
         if recording:
             m, s = int(duration) // 60, int(duration) % 60
@@ -191,6 +196,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.btnRecord.setText("● 录像")
             self.statusRecord.setText("")
+        # 同步按钮选中状态
+        if self.btnRecord.isChecked() != recording:
+            self.btnRecord.blockSignals(True)
+            self.btnRecord.setChecked(recording)
+            self.btnRecord.blockSignals(False)
 
     def update_stopwatch_display(self, elapsed: float, running: bool) -> None:
         """更新秒表显示"""

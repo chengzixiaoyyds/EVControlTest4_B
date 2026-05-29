@@ -35,6 +35,7 @@ class AppCallbacks:
     on_sensor_data: Optional[Callable[[SensorData], None]] = None       # 收到传感器数据
     on_overcurrent_enter: Optional[Callable[[float], None]] = None      # 进入过流(电流值)
     on_overcurrent_exit: Optional[Callable[[float, float], None]] = None  # 退出过流(电流值, 持续秒)
+    on_overcurrent_threshold: Optional[Callable[[float], None]] = None  # 过流阈值同步
     on_connection_changed: Optional[Callable[[bool], None]] = None      # 串口连接状态变化
     on_joystick_changed: Optional[Callable[[bool], None]] = None        # 手柄连接状态变化
     on_mode_names: Optional[Callable[[dict], None]] = None              # 速度档位名称同步
@@ -153,6 +154,9 @@ class AppCore:
             on_enter=self._callbacks.on_overcurrent_enter,
             on_exit=self._callbacks.on_overcurrent_exit,
         )
+        # 同步阈值到 UI
+        if self._callbacks.on_overcurrent_threshold:
+            self._callbacks.on_overcurrent_threshold(threshold)
 
         # ── 串口 ──
         port = self._get_cfg("serial", "port", "COM8")
@@ -344,9 +348,8 @@ class AppCore:
                 try:
                     frame = SerialComm.build_request_frame()
                     self._serial.send_frame(frame)
-                except Exception:
-                    # send_frame 内部已处理 SerialException，此处仅防意外
-                    pass
+                except Exception as e:
+                    print(f"[AppCore] 请求帧发送异常: {e}")
             self._request_timer_stop.wait(self._request_interval)
 
     # === 串口状态回调 ===
