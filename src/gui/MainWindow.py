@@ -147,6 +147,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def bind_stopwatch_reset(self, callback) -> None:
         self.btnStopwatchReset.clicked.connect(callback)
 
+    def set_record_button_checked(self, checked: bool) -> None:
+        """安全设置录像按钮选中状态 —— 阻断信号防止回环触发 toggled"""
+        self.btnRecord.blockSignals(True)
+        self.btnRecord.setChecked(checked)
+        self.btnRecord.blockSignals(False)
+
     def update_mode_names(self, names: dict) -> None:
         """同步速度档位名称（由 AppCore 从 JoystickController 获取后传入）"""
         self._mode_names.update(names)

@@ -91,10 +91,9 @@ class AppCore:
         self._request_timer_thread: Optional[threading.Thread] = None
         self._request_timer_stop = threading.Event()
 
-        # ── 手柄热插拔检测 ──
+        # ── 手柄热插拔检测（在主线程 update() 中按时间间隔执行，避免 pygame 多线程问题）──
         self._joystick_poll_interval = 1.0  # 默认值，start() 中从 config 覆盖
-        self._joystick_poll_thread: Optional[threading.Thread] = None
-        self._joystick_poll_stop = threading.Event()
+        self._last_joystick_poll: float = 0.0
 
     # === 配置 ===
     def _load_config(self) -> configparser.ConfigParser:
@@ -168,8 +167,8 @@ class AppCore:
         # 注意: connect() 内部已通过 _set_connected → _on_serial_status
         # 自动触发 on_connection_changed 和 _start_request_timer()，无需重复调用
 
-        # ── 手柄热插拔检测 ──
-        self._start_joystick_poll()
+        # ── 手柄热插拔检测（内联到 update() 中，避免 pygame 多线程问题）──
+        self._last_joystick_poll = time.time()
 
         # ── 摄像头 ──
         camera_id = self._get_cfg("camera", "id", 0, int)
@@ -199,9 +198,6 @@ class AppCore:
         # 停止请求帧定时器
         self._stop_request_timer()
 
-        # 停止手柄热插拔检测
-        self._stop_joystick_poll()
-
         if self._camera:
             self._camera.stop()
             self._camera = None
@@ -219,9 +215,19 @@ class AppCore:
         """
         每帧调用一次（推荐 125 Hz）。
         读取手柄 → 发送下行数据帧 → 返回 ControlState。
+        手柄热插拔检测也在此处（按时间间隔触发），避免 pygame 多线程访问。
         """
         if self._joystick is None:
             return ControlState()
+
+        # ── 手柄热插拔检测（主线程中执行，线程安全）──
+        now = time.time()
+        if now - self._last_joystick_poll >= self._joystick_poll_interval:
+            self._last_joystick_poll = now
+            prev = self._joystick.has_joystick
+            cur = self._joystick.refresh_joystick()
+            if cur != prev and self._callbacks.on_joystick_changed:
+                self._callbacks.on_joystick_changed(cur)
 
         cs = self._joystick.update()
 
@@ -358,33 +364,6 @@ class AppCore:
         if self._callbacks.on_connection_changed:
             self._callbacks.on_connection_changed(connected)
 
-    # === 手柄热插拔检测 ===
-    def _start_joystick_poll(self) -> None:
-        """启动后台线程，定期检测手柄的插拔状态"""
-        self._stop_joystick_poll()
-        self._joystick_poll_stop.clear()
-        self._joystick_poll_thread = threading.Thread(
-            target=self._joystick_poll_loop, daemon=True
-        )
-        self._joystick_poll_thread.start()
-
-    def _stop_joystick_poll(self) -> None:
-        """停止手柄检测线程"""
-        self._joystick_poll_stop.set()
-        if self._joystick_poll_thread is not None:
-            self._joystick_poll_thread.join(timeout=1.0)
-            self._joystick_poll_thread = None
-
-    def _joystick_poll_loop(self) -> None:
-        """后台线程：定时检测手柄插拔，状态变化时通知 GUI"""
-        while not self._joystick_poll_stop.is_set():
-            if self._joystick:
-                prev = self._joystick.has_joystick
-                cur = self._joystick.refresh_joystick()
-                if cur != prev and self._callbacks.on_joystick_changed:
-                    self._callbacks.on_joystick_changed(cur)
-            self._joystick_poll_stop.wait(self._joystick_poll_interval)
-
     # === 串口回调 ===
     def _on_serial_frame(self, raw_frame: bytes) -> None:
         """
@@ -443,10 +422,6 @@ class AppCore:
         return self._camera.actual_fps if self._camera else 0.0
 
     # === 配置暴露 ===
-    def get_joystick_controller(self) -> Optional[JoystickController]:
-        """获取手柄控制器引用（供 main.py 设置快捷键回调等）"""
-        return self._joystick
-
     @property
     def keyboard_config(self) -> dict:
         """键盘映射配置 dict → MainWindow → KeyBridge"""

@@ -51,7 +51,7 @@ def main():
     def on_record_toggle(checked: bool):
         if checked:
             if not core.start_recording():
-                window.btnRecord.setChecked(False)
+                window.set_record_button_checked(False)
         else:
             core.stop_recording()
 

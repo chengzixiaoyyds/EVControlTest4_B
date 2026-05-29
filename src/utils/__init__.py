@@ -1,3 +1,2 @@
-"""工具模块 —— 帧率限制器、秒表等通用工具"""
-from .FrameRateLimiter import FrameRateLimiter
+"""工具模块 —— 秒表等通用工具"""
 from .Stopwatch import Stopwatch

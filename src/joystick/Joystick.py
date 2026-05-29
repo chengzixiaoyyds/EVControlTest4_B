@@ -99,15 +99,6 @@ class JoystickController:
     KEY_SNAPSHOT = pygame.K_p        # 截图
     KEY_RECORD = pygame.K_r          # 录像
 
-    # ── 默认轴配置（每轴独立） ──
-    # {name: {"axis": int, "max": float, "deadzone": float}}
-    _axis_cfg = {
-        "y":   {"axis": 1, "max": 5000.0,  "deadzone": 0.05},
-        "x":   {"axis": 2, "max": 6000.0,  "deadzone": 0.05},
-        "z":   {"axis": 3, "max": 6000.0,  "deadzone": 0.05},
-        "yaw": {"axis": 0, "max": 1000.0,  "deadzone": 0.05},
-    }
-
     ARM_OPEN = 0x40     # 0x40 松开
     ARM_CLOSE = 0x00     # 0x00 夹紧
 
@@ -126,6 +117,14 @@ class JoystickController:
         self._joystick: "pygame.joystick.JoystickType | None" = None
         self._has_joystick = False
 
+        # ── 轴配置 ──
+        self._axis_cfg = {
+            "y":   {"axis": 1, "max": 5000.0,  "deadzone": 0.05},
+            "x":   {"axis": 2, "max": 6000.0,  "deadzone": 0.05},
+            "z":   {"axis": 3, "max": 6000.0,  "deadzone": 0.05},
+            "yaw": {"axis": 0, "max": 1000.0,  "deadzone": 0.05},
+        }
+
         # 状态
         self._mode = SpeedMode.SLOW
         self._claw_open = False
@@ -135,11 +134,12 @@ class JoystickController:
         self._mode_names = dict(MODE_NAMES)
         self._mode_rates = dict(MODE_RATES)
 
-        # 模式切换键状态
+        # 模式切换键状态（同键时使用 _handle_mode_key 的长按判定）
         self._mode_key_pressed_time: Optional[float] = None
         self._mode_key_handled = False
-        self._mode_reverse_pressed_time: Optional[float] = None
-        self._mode_reverse_handled = False
+        # 独立 toggle/reverse 键的边沿检测
+        self._mode_toggle_prev = False
+        self._mode_reverse_prev = False
 
         # 夹爪按键下降沿
         self._lb_prev = False
@@ -484,26 +484,19 @@ class JoystickController:
                 ks.get(self.KEY_MODE_TOGGLE, False), "_mode_key_pressed_time", "_mode_key_handled"
             )
         else:
-            # 不同键：各自下降沿触发
+            # 不同键：各自下降沿触发，toggle 仅正向轮换（无长按反转）
             toggle_now = ks.get(self.KEY_MODE_TOGGLE, False)
             reverse_now = ks.get(self.KEY_MODE_REVERSE, False)
 
-            self._handle_mode_key(
-                toggle_now, "_mode_key_pressed_time", "_mode_key_handled"
-            )
-            # reverse 键独立处理：下降沿反向轮换
-            now = time.time()
-            if reverse_now:
-                if self._mode_reverse_pressed_time is None:
-                    self._mode_reverse_pressed_time = now
-                    self._mode_reverse_handled = False
-                # 独立键：按下即触发，无长按逻辑
-                if not self._mode_reverse_handled:
-                    self._mode = SpeedMode((self._mode.value - 1) % 3)
-                    self._mode_reverse_handled = True
-            else:
-                self._mode_reverse_pressed_time = None
-                self._mode_reverse_handled = False
+            # toggle 键：下降沿正向轮换
+            if self._mode_toggle_prev and not toggle_now:
+                self._mode = SpeedMode((self._mode.value + 1) % 3)
+            self._mode_toggle_prev = toggle_now
+
+            # reverse 键：下降沿反向轮换
+            if self._mode_reverse_prev and not reverse_now:
+                self._mode = SpeedMode((self._mode.value - 1) % 3)
+            self._mode_reverse_prev = reverse_now
 
         # Q — 张开夹爪（下降沿）
         q_now = ks.get(self.KEY_CLAW_OPEN, False)
