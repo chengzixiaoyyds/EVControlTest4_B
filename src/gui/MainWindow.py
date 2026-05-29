@@ -19,7 +19,8 @@ import numpy as np
 from .Ui_MainWindow import Ui_MainWindow
 from .KeyBridge import KeyBridge
 from ..sensor import SensorData
-from ..joystick import ControlState, SpeedMode, MODE_NAMES
+from ..joystick import ControlState, SpeedMode
+from ..joystick import MODE_NAMES as _DEFAULT_MODE_NAMES
 
 
 # ── 样式常量 ──
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)        # Ui_MainWindow 生成所有控件
         self._fix_statusbar()     # 修复状态栏控件布局
         self._key_bridge = KeyBridge(keyboard_cfg) if keyboard_cfg else None
+        self._mode_names: dict = dict(_DEFAULT_MODE_NAMES)
         self._init_state()
         self._apply_styles()
         self._connect_signals()
@@ -122,6 +124,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         callbacks.on_overcurrent_exit   = self._cb_oc_exit
         callbacks.on_connection_changed = self._cb_serial
         callbacks.on_joystick_changed   = self._cb_joystick
+        callbacks.on_mode_names         = self.update_mode_names
 
     def start_ui_timer(self) -> None:
         self._ui_timer.start()
@@ -143,6 +146,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def bind_stopwatch_reset(self, callback) -> None:
         self.btnStopwatchReset.clicked.connect(callback)
+
+    def update_mode_names(self, names: dict) -> None:
+        """同步速度档位名称（由 AppCore 从 JoystickController 获取后传入）"""
+        self._mode_names.update(names)
 
     # ── 视频帧显示（RGB numpy → QPixmap）──
     def update_video_frame(self, frame_rgb: Optional[np.ndarray]) -> None:
@@ -298,7 +305,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         }
         for mode, (lbl, color) in mode_map.items():
             prefix = "●" if cs.mode == mode else "○"
-            lbl.setText(f"{prefix} {MODE_NAMES[mode]}")
+            lbl.setText(f"{prefix} {self._mode_names[mode]}")
             lbl.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: bold;")
 
         # 夹爪

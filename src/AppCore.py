@@ -37,6 +37,7 @@ class AppCallbacks:
     on_overcurrent_exit: Optional[Callable[[float, float], None]] = None  # 退出过流(电流值, 持续秒)
     on_connection_changed: Optional[Callable[[bool], None]] = None      # 串口连接状态变化
     on_joystick_changed: Optional[Callable[[bool], None]] = None        # 手柄连接状态变化
+    on_mode_names: Optional[Callable[[dict], None]] = None              # 速度档位名称同步
 
 
 # ════════════════════════════════════════════════════════
@@ -70,12 +71,20 @@ class AppCore:
         # ── 回调 ──
         self._callbacks = AppCallbacks()
 
+        # ── 线程安全 ──
+        self._state_lock = threading.Lock()  # 保护 _latest_control / _latest_sensor
+
         # ── 状态 ──
         self._latest_control: Optional[ControlState] = None
         self._latest_sensor: Optional[SensorData] = None
 
         # ── 秒表（用于任务计时等） ──
         self._stopwatch = Stopwatch()
+
+        # ── 媒体输出 ──
+        self._screenshot_counter = 0
+        self._screenshot_dir = ""
+        self._record_dir = ""
 
         # ── 请求帧定时发送 ──
         self._request_interval = 0.2  # 200ms 发送一次请求帧
@@ -132,6 +141,8 @@ class AppCore:
         self._joystick = JoystickController(jc_kb, jc_joy, jc_axes, jc_spd)
         if self._callbacks.on_joystick_changed:
             self._callbacks.on_joystick_changed(self._joystick.has_joystick)
+        if self._callbacks.on_mode_names:
+            self._callbacks.on_mode_names(self._joystick.mode_names)
 
         # ── 手柄热插拔检测间隔 ──
         self._joystick_poll_interval = self._get_cfg("joystick", "poll_interval", 1.0, float)
@@ -169,6 +180,18 @@ class AppCore:
             print("[AppCore] 警告: 摄像头启动失败")
             self._camera = None
 
+        # ── 媒体输出路径 ──
+        media = self._section_dict("media")
+        self._screenshot_dir = os.path.join(_BASE_DIR, media.get("screenshot_dir", "screenshots"))
+        self._record_dir = os.path.join(_BASE_DIR, media.get("record_dir", "recordings"))
+        os.makedirs(self._screenshot_dir, exist_ok=True)
+        os.makedirs(self._record_dir, exist_ok=True)
+
+        # ── 快捷键绑定（内部完成，不暴露给 main.py）──
+        if self._joystick:
+            self._joystick.on_snapshot = self.snapshot
+            self._joystick.on_record_toggle = self.toggle_recording
+
         return connected
 
     def stop(self) -> None:
@@ -201,7 +224,6 @@ class AppCore:
             return ControlState()
 
         cs = self._joystick.update()
-        self._latest_control = cs
 
         # 发送下行数据帧
         if self._serial and self._serial.is_connected():
@@ -213,6 +235,9 @@ class AppCore:
                 arm_angle=cs.arm_angle,
             )
             self._serial.send_frame(frame)
+
+        with self._state_lock:
+            self._latest_control = cs
 
         return cs
 
@@ -229,11 +254,16 @@ class AppCore:
             return self._camera.get_frame_rgb()
         return None
 
-    def snapshot(self, filepath: str) -> bool:
-        """保存当前帧截图"""
-        if self._camera:
-            return self._camera.snapshot(filepath)
-        return False
+    def snapshot(self) -> str:
+        """截图（自动生成路径），返回文件路径，失败返回空字符串"""
+        if not self._camera:
+            return ""
+        self._screenshot_counter += 1
+        path = os.path.join(self._screenshot_dir, f"screenshot_{self._screenshot_counter:04d}.png")
+        ok = self._camera.snapshot(path)
+        if ok:
+            print(f"[AppCore] 截图 → {path}")
+        return path if ok else ""
 
     # --- 录像 ---
     @property
@@ -244,11 +274,13 @@ class AppCore:
     def record_duration(self) -> float:
         return self._camera.record_duration if self._camera else 0.0
 
-    def start_recording(self, filepath: str) -> bool:
-        """开始录像"""
-        if self._camera:
-            return self._camera.start_recording(filepath)
-        return False
+    def start_recording(self) -> str:
+        """开始录像（自动生成路径），返回文件路径，失败返回空字符串"""
+        if not self._camera:
+            return ""
+        path = os.path.join(self._record_dir, f"record_{time.strftime('%Y%m%d_%H%M%S')}.avi")
+        ok = self._camera.start_recording(path)
+        return path if ok else ""
 
     def stop_recording(self) -> str:
         """停止录像，返回文件路径"""
@@ -256,11 +288,31 @@ class AppCore:
             return self._camera.stop_recording()
         return ""
 
+    def toggle_recording(self) -> bool:
+        """切换录像状态，返回当前是否录像中"""
+        if self.is_recording:
+            self.stop_recording()
+            return False
+        else:
+            return bool(self.start_recording())
+
     # === 秒表 ===
     @property
     def stopwatch(self) -> Stopwatch:
-        """获取秒表实例（用于任务计时等）"""
+        """获取秒表实例（供主循环读取 elapsed 等属性）"""
         return self._stopwatch
+
+    def toggle_stopwatch(self) -> None:
+        """切换秒表：运行→暂停，暂停→恢复，停止→开始"""
+        sw = self._stopwatch
+        if sw.is_running:
+            sw.pause()
+        else:
+            sw.resume() if sw.elapsed > 0 else sw.start()
+
+    def reset_stopwatch(self) -> None:
+        """重置秒表"""
+        self._stopwatch.reset()
 
     # === 请求帧定时器 ===
     def _start_request_timer(self) -> None:
@@ -276,6 +328,7 @@ class AppCore:
         """停止请求帧后台线程"""
         self._request_timer_stop.set()
         if self._request_timer_thread is not None:
+            self._request_timer_thread.join(timeout=1.0)
             self._request_timer_thread = None
 
     def _request_timer_loop(self) -> None:
@@ -319,6 +372,7 @@ class AppCore:
         """停止手柄检测线程"""
         self._joystick_poll_stop.set()
         if self._joystick_poll_thread is not None:
+            self._joystick_poll_thread.join(timeout=1.0)
             self._joystick_poll_thread = None
 
     def _joystick_poll_loop(self) -> None:
@@ -338,11 +392,13 @@ class AppCore:
         解析传感器数据 → 更新过流监控 → 通知 GUI。
         """
         sensor = SensorParser.parse(raw_frame)
-        self._latest_sensor = sensor
 
         # 更新过流监控
         if self._overcurrent:
             self._overcurrent.update(sensor.current, sensor.timestamp)
+
+        with self._state_lock:
+            self._latest_sensor = sensor
 
         # 通知 GUI
         if self._callbacks.on_sensor_data:
@@ -416,3 +472,4 @@ class AppCore:
         """重置过流累计时间统计"""
         if self._overcurrent:
             self._overcurrent.reset_statistics()
+        print("[AppCore] 过流统计已重置")

@@ -10,7 +10,7 @@
 import time
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import pygame
 
@@ -108,7 +108,7 @@ class JoystickController:
         "yaw": {"axis": 0, "max": 1000.0,  "deadzone": 0.05},
     }
 
-    ARM_OPEN = 0x80     # 0x80 松开
+    ARM_OPEN = 0x40     # 0x40 松开
     ARM_CLOSE = 0x00     # 0x00 夹紧
 
     # ── 长按判定 ──
@@ -151,9 +151,9 @@ class JoystickController:
         self._key_snapshot_prev = False
         self._key_record_prev = False
 
-        # 快捷键回调（由 main.py 设置）
-        self.on_snapshot: Optional[Callable[[], None]] = None
-        self.on_record_toggle: Optional[Callable[[], None]] = None
+        # 快捷键回调（由 AppCore.start() 内部绑定）
+        self.on_snapshot: Optional[Callable[[], Any]] = None
+        self.on_record_toggle: Optional[Callable[[], Any]] = None
 
         # 键盘轴状态（无手柄时使用）
         self._key_axes = {"y": 0.0, "x": 0.0, "z": 0.0, "yaw": 0.0}
@@ -216,9 +216,6 @@ class JoystickController:
                 mode = SpeedMode(i)
                 self._mode_rates[mode] = rate
                 self._mode_names[mode] = name
-                # 同步更新模块级字典（供 MainWindow 等外部模块读取）
-                MODE_RATES[mode] = rate
-                MODE_NAMES[mode] = name
 
     # ── pygame 键名覆盖（pygame 命名不遵循 K_<name> 规则时使用）──
     _PG_KEY_OVERRIDE: dict[str, str] = {
@@ -285,7 +282,6 @@ class JoystickController:
         重新检测手柄连接状态（支持热插拔）。
         :return: 当前是否有手柄连接
         """
-        prev = self._has_joystick
         count = pygame.joystick.get_count()
         if count > 0:
             if not self._has_joystick:
@@ -316,6 +312,11 @@ class JoystickController:
     @property
     def mode(self) -> SpeedMode:
         return self._mode
+
+    @property
+    def mode_names(self) -> dict:
+        """所有速度模式的名称映射 {SpeedMode: str}，供 UI 读取"""
+        return dict(self._mode_names)
 
     @property
     def mode_name(self) -> str:

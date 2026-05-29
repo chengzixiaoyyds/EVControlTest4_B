@@ -31,16 +31,6 @@ _KEY_OVERRIDE: dict[str, tuple[str, str]] = {
     "QuoteDbl":        ("Key_QuoteDbl",     "K_QUOTEDBL"),       # Qt/pygame 均非标准名
 }
 
-# 所有需要桥接的键盘配置键
-_BRIDGE_KEYS = [
-    "key_forward", "key_backward", "key_yaw_left", "key_yaw_right",
-    "key_strafe_left", "key_strafe_right",
-    "key_ascend", "key_descend",
-    "key_mode_toggle", "key_mode_reverse",
-    "key_claw_open", "key_claw_close",
-    "key_snapshot", "key_record",
-]
-
 
 class KeyBridge:
     """Qt → pygame 翻译器 —— 接收键盘配置 dict，建立键码映射表"""
@@ -84,14 +74,13 @@ class KeyBridge:
         return False
 
     def _load_mapping(self, keyboard_cfg: dict) -> None:
-        """从键盘配置字典加载 Qt→pygame 键码映射"""
+        """从键盘配置字典加载 Qt→pygame 键码映射，遍历全部配置值"""
         self._qt_to_pygame.clear()
         if not keyboard_cfg:
             return
 
-        for key_name in _BRIDGE_KEYS:
-            val = keyboard_cfg.get(key_name, "")
-            resolved = self._resolve_key_pair(val)
+        for key_name in set(keyboard_cfg.values()):
+            resolved = self._resolve_key_pair(key_name)
             if resolved is not None:
                 qt_key, pg_key = resolved
                 self._qt_to_pygame[qt_key.value] = pg_key

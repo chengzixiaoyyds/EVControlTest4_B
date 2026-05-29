@@ -9,6 +9,7 @@
 """
 
 import struct
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -84,6 +85,9 @@ class OvercurrentMonitor:
         self._on_enter_overcurrent: Optional[Callable[[float], None]] = None
         self._on_exit_overcurrent: Optional[Callable[[float, float], None]] = None
 
+        # 线程安全锁（可重入，避免 get_status_dict → total_overcurrent_time 自死锁）
+        self._lock = threading.RLock()
+
     # ── 属性 ──
     @property
     def threshold(self) -> float:
@@ -96,15 +100,17 @@ class OvercurrentMonitor:
     @property
     def is_overcurrent(self) -> bool:
         """当前是否处于过流状态"""
-        return self._is_overcurrent
+        with self._lock:
+            return self._is_overcurrent
 
     @property
     def total_overcurrent_time(self) -> float:
         """累计总过流时间（秒），含当前正在进行的过流"""
-        total = self._total_overcurrent_time
-        if self._is_overcurrent and self._overcurrent_start is not None:
-            total += time.time() - self._overcurrent_start
-        return total
+        with self._lock:
+            total = self._total_overcurrent_time
+            if self._is_overcurrent and self._overcurrent_start is not None:
+                total += time.time() - self._overcurrent_start
+            return total
 
     # ── 回调设置 ──
     def set_callbacks(
@@ -124,7 +130,7 @@ class OvercurrentMonitor:
     def update(self, current: float, timestamp: Optional[float] = None) -> None:
         """
         根据当前电流值更新过流状态与累计时间。
-        每次收到新的电流数据时调用。
+        每次收到新的电流数据时调用。线程安全。
 
         :param current:   当前电流值（A）
         :param timestamp: 时间戳（秒），默认使用 time.time()
@@ -132,40 +138,43 @@ class OvercurrentMonitor:
         if timestamp is None:
             timestamp = time.time()
 
-        now_over = current > self._threshold
+        with self._lock:
+            now_over = current > self._threshold
 
-        if now_over and not self._is_overcurrent:
-            # 进入过流
-            self._is_overcurrent = True
-            self._overcurrent_start = timestamp
-            if self._on_enter_overcurrent:
-                self._on_enter_overcurrent(current)
+            if now_over and not self._is_overcurrent:
+                # 进入过流
+                self._is_overcurrent = True
+                self._overcurrent_start = timestamp
+                if self._on_enter_overcurrent:
+                    self._on_enter_overcurrent(current)
 
-        elif not now_over and self._is_overcurrent:
-            # 退出过流：累计本次过流时长
-            if self._overcurrent_start is not None:
-                duration = timestamp - self._overcurrent_start
-                self._total_overcurrent_time += duration
-            else:
-                duration = 0.0
-            self._is_overcurrent = False
-            self._overcurrent_start = None
-            if self._on_exit_overcurrent:
-                self._on_exit_overcurrent(current, duration)
+            elif not now_over and self._is_overcurrent:
+                # 退出过流：累计本次过流时长
+                if self._overcurrent_start is not None:
+                    duration = timestamp - self._overcurrent_start
+                    self._total_overcurrent_time += duration
+                else:
+                    duration = 0.0
+                self._is_overcurrent = False
+                self._overcurrent_start = None
+                if self._on_exit_overcurrent:
+                    self._on_exit_overcurrent(current, duration)
 
-        self._last_update_time = timestamp
+            self._last_update_time = timestamp
 
     def reset_statistics(self) -> None:
-        """重置过流累计时间统计"""
-        self._total_overcurrent_time = 0.0
-        self._overcurrent_start = None
-        self._is_overcurrent = False
-        self._last_update_time = None
+        """重置过流累计时间统计（线程安全）"""
+        with self._lock:
+            self._total_overcurrent_time = 0.0
+            self._overcurrent_start = None
+            self._is_overcurrent = False
+            self._last_update_time = None
 
     def get_status_dict(self) -> dict:
-        """返回当前过流状态摘要（供 GUI 使用）"""
-        return {
-            "is_overcurrent": self._is_overcurrent,
-            "threshold": self._threshold,
-            "total_overcurrent_time": self.total_overcurrent_time,
-        }
+        """返回当前过流状态摘要（供 GUI 使用，线程安全）"""
+        with self._lock:
+            return {
+                "is_overcurrent": self._is_overcurrent,
+                "threshold": self._threshold,
+                "total_overcurrent_time": self.total_overcurrent_time,
+            }

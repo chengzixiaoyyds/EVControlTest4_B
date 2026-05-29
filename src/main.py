@@ -45,58 +45,20 @@ def main():
     connected = core.start()
     print(f"[Main] 串口连接: {'成功' if connected else '失败'}")
 
-    # ── 按钮事件 ──
-    snapshot_counter = 0
-
-    # 媒体输出路径（由 AppCore 从 config.ini 统一读取）
-    media = core.media_config
-    screenshot_dir = os.path.join(_BASE_DIR, media.get("screenshot_dir", "screenshots"))
-    record_dir = os.path.join(_BASE_DIR, media.get("record_dir", "recordings"))
-    os.makedirs(screenshot_dir, exist_ok=True)
-    os.makedirs(record_dir, exist_ok=True)
-
-    def on_snapshot():
-        nonlocal snapshot_counter
-        snapshot_counter += 1
-        path = os.path.join(screenshot_dir, f"screenshot_{snapshot_counter:04d}.png")
-        ok = core.snapshot(path)
-        print(f"[Main] 截图 → {path} ({'OK' if ok else 'FAIL'})")
+    # ── 按钮事件（直接绑定 AppCore 方法，不在此处理业务逻辑）──
+    window.bind_snapshot(core.snapshot)
 
     def on_record_toggle(checked: bool):
         if checked:
-            path = os.path.join(record_dir, f"record_{time.strftime('%Y%m%d_%H%M%S')}.avi")
-            if not core.start_recording(path):
+            if not core.start_recording():
                 window.btnRecord.setChecked(False)
         else:
             core.stop_recording()
 
-    def on_reset_overcurrent():
-        core.reset_overcurrent_statistics()
-        print("[Main] 过流统计已重置")
-
-    window.bind_snapshot(on_snapshot)
     window.bind_record_toggle(on_record_toggle)
-    window.bind_reset_overcurrent(on_reset_overcurrent)
-
-    # 秒表
-    def on_stopwatch_toggle():
-        sw = core.stopwatch
-        if sw.is_running:
-            sw.pause()
-        else:
-            sw.resume() if sw.elapsed > 0 else sw.start()
-
-    def on_stopwatch_reset():
-        core.stopwatch.reset()
-
-    window.bind_stopwatch_toggle(on_stopwatch_toggle)
-    window.bind_stopwatch_reset(on_stopwatch_reset)
-
-    # 快捷键回调 → JoystickController 统一管理
-    jc = core.get_joystick_controller()
-    if jc:
-        jc.on_snapshot = on_snapshot
-        jc.on_record_toggle = lambda: on_record_toggle(not core.is_recording)
+    window.bind_reset_overcurrent(core.reset_overcurrent_statistics)
+    window.bind_stopwatch_toggle(core.toggle_stopwatch)
+    window.bind_stopwatch_reset(core.reset_stopwatch)
 
     # ── 主循环定时器（频率由 AppCore 从 config.ini 统一读取）──
     loop_timer = QTimer()

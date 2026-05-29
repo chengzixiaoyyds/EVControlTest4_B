@@ -248,7 +248,7 @@ class SerialComm:
         try:
             with self._lock:
                 ser.write(frame)
-                print(f"\r[SerialComm] 已发送帧: {frame.hex()}", end='')
+                #print(f"\r[SerialComm] 已发送帧: {frame.hex()}", end='')
             return True
         except serial.SerialException:
             self._close_port()
