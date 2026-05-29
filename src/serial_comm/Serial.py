@@ -258,7 +258,7 @@ class SerialComm:
                 return False
         try:
             ser.write(frame)
-            print(f"\r[SerialComm] 发送帧: {frame.hex()}", end='')
+            #print(f"\r[SerialComm] 发送帧: {frame.hex()}", end='')
             return True
         except serial.SerialTimeoutException:
             # 写超时是瞬时现象（USB 总线延迟），不意味着端口断开
