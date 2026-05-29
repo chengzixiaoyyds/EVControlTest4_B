@@ -80,6 +80,12 @@ class AppCore:
         # ── 请求帧定时发送 ──
         self._request_interval = 0.2  # 200ms 发送一次请求帧
         self._request_timer_thread: Optional[threading.Thread] = None
+        self._request_timer_stop = threading.Event()
+
+        # ── 手柄热插拔检测 ──
+        self._joystick_poll_interval = 1.0  # 默认值，start() 中从 config 覆盖
+        self._joystick_poll_thread: Optional[threading.Thread] = None
+        self._joystick_poll_stop = threading.Event()
 
     # === 配置 ===
     def _load_config(self) -> configparser.ConfigParser:
@@ -127,6 +133,9 @@ class AppCore:
         if self._callbacks.on_joystick_changed:
             self._callbacks.on_joystick_changed(self._joystick.has_joystick)
 
+        # ── 手柄热插拔检测间隔 ──
+        self._joystick_poll_interval = self._get_cfg("joystick", "poll_interval", 1.0, float)
+
         # ── 过流监控 ──
         threshold = self._get_cfg("overcurrent", "threshold", 10.0, float)
         self._overcurrent = OvercurrentMonitor(threshold=threshold)
@@ -140,15 +149,16 @@ class AppCore:
         baudrate = self._get_cfg("serial", "baudrate", 115200, int)
         timeout = self._get_cfg("serial", "timeout", 0.05, float)
         poll_interval = self._get_cfg("serial", "poll_interval", 0.001, float)
-        self._serial = SerialComm(port, baudrate, timeout, poll_interval)
+        reconnect_interval = self._get_cfg("serial", "reconnect_interval", 2.0, float)
+        self._serial = SerialComm(port, baudrate, timeout, poll_interval, reconnect_interval)
         self._serial.set_callback(self._on_serial_frame)
+        self._serial.set_status_callback(self._on_serial_status)
         connected = self._serial.connect()
+        # 注意: connect() 内部已通过 _set_connected → _on_serial_status
+        # 自动触发 on_connection_changed 和 _start_request_timer()，无需重复调用
 
-        if self._callbacks.on_connection_changed:
-            self._callbacks.on_connection_changed(connected)
-
-        if connected:
-            self._start_request_timer()
+        # ── 手柄热插拔检测 ──
+        self._start_joystick_poll()
 
         # ── 摄像头 ──
         camera_id = self._get_cfg("camera", "id", 0, int)
@@ -165,6 +175,9 @@ class AppCore:
         """停止所有子系统并释放资源"""
         # 停止请求帧定时器
         self._stop_request_timer()
+
+        # 停止手柄热插拔检测
+        self._stop_joystick_poll()
 
         if self._camera:
             self._camera.stop()
@@ -253,25 +266,70 @@ class AppCore:
     def _start_request_timer(self) -> None:
         """启动后台线程，每 200ms 发送下行请求帧(0x52 'R')，触发下位机回传传感器数据"""
         self._stop_request_timer()
+        self._request_timer_stop.clear()
         self._request_timer_thread = threading.Thread(
             target=self._request_timer_loop, daemon=True
         )
         self._request_timer_thread.start()
 
     def _stop_request_timer(self) -> None:
-        """停止请求帧后台线程（daemon 线程会随进程自动退出）"""
+        """停止请求帧后台线程"""
+        self._request_timer_stop.set()
         if self._request_timer_thread is not None:
             self._request_timer_thread = None
 
     def _request_timer_loop(self) -> None:
         """后台线程：定时发送下行请求帧(0x52 'R')，下位机收到后才回传上行数据帧(0x53 'S')"""
-        while self._serial and self._serial.is_connected():
-            try:
-                frame = SerialComm.build_request_frame()
-                self._serial.send_frame(frame)
-            except Exception:
-                pass
-            time.sleep(self._request_interval)
+        while not self._request_timer_stop.is_set():
+            if self._serial and self._serial.is_connected():
+                try:
+                    frame = SerialComm.build_request_frame()
+                    self._serial.send_frame(frame)
+                except Exception:
+                    # send_frame 内部已处理 SerialException，此处仅防意外
+                    pass
+            self._request_timer_stop.wait(self._request_interval)
+
+    # === 串口状态回调 ===
+    def _on_serial_status(self, connected: bool) -> None:
+        """
+        SerialComm 连接状态变化时的回调。
+        连接恢复时重启请求帧定时器，断开时停止。
+        """
+        if connected:
+            self._start_request_timer()
+        else:
+            self._stop_request_timer()
+
+        # 通知 GUI
+        if self._callbacks.on_connection_changed:
+            self._callbacks.on_connection_changed(connected)
+
+    # === 手柄热插拔检测 ===
+    def _start_joystick_poll(self) -> None:
+        """启动后台线程，定期检测手柄的插拔状态"""
+        self._stop_joystick_poll()
+        self._joystick_poll_stop.clear()
+        self._joystick_poll_thread = threading.Thread(
+            target=self._joystick_poll_loop, daemon=True
+        )
+        self._joystick_poll_thread.start()
+
+    def _stop_joystick_poll(self) -> None:
+        """停止手柄检测线程"""
+        self._joystick_poll_stop.set()
+        if self._joystick_poll_thread is not None:
+            self._joystick_poll_thread = None
+
+    def _joystick_poll_loop(self) -> None:
+        """后台线程：定时检测手柄插拔，状态变化时通知 GUI"""
+        while not self._joystick_poll_stop.is_set():
+            if self._joystick:
+                prev = self._joystick.has_joystick
+                cur = self._joystick.refresh_joystick()
+                if cur != prev and self._callbacks.on_joystick_changed:
+                    self._callbacks.on_joystick_changed(cur)
+            self._joystick_poll_stop.wait(self._joystick_poll_interval)
 
     # === 串口回调 ===
     def _on_serial_frame(self, raw_frame: bytes) -> None:

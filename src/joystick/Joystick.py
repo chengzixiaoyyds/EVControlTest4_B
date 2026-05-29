@@ -280,6 +280,39 @@ class JoystickController:
     def has_joystick(self) -> bool:
         return self._has_joystick
 
+    def refresh_joystick(self) -> bool:
+        """
+        重新检测手柄连接状态（支持热插拔）。
+        :return: 当前是否有手柄连接
+        """
+        prev = self._has_joystick
+        count = pygame.joystick.get_count()
+        if count > 0:
+            if not self._has_joystick:
+                # 新插入手柄
+                try:
+                    joy = pygame.joystick.Joystick(0)
+                    joy.init()
+                    self._joystick = joy
+                    self._has_joystick = True
+                    print(f"[Joystick] 检测到手柄插入: {joy.get_name()}")
+                except pygame.error:
+                    self._has_joystick = False
+                    self._joystick = None
+            # 已有手柄，保持
+        else:
+            if self._has_joystick:
+                # 手柄拔出
+                if self._joystick:
+                    try:
+                        self._joystick.quit()
+                    except pygame.error:
+                        pass
+                self._joystick = None
+                self._has_joystick = False
+                print("[Joystick] 手柄已拔出，切换到键盘模式")
+        return self._has_joystick
+
     @property
     def mode(self) -> SpeedMode:
         return self._mode
