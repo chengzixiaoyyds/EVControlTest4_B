@@ -352,11 +352,23 @@ class JoystickController:
 
         # 读取轴值
         if self._has_joystick:
-            ly_raw = -self._get_axis(cfg["y"]["axis"])    # Xbox: 前推=-1，取反后前进=+1
-            lx_raw = self._get_axis(cfg["yaw"]["axis"])
-            rx_raw = self._get_axis(cfg["x"]["axis"])
-            ry_raw = self._get_axis(cfg["z"]["axis"])      # 后拉=+1 → 下潜=+1
-            self._handle_joystick_buttons()
+            try:
+                ly_raw = -self._get_axis(cfg["y"]["axis"])    # Xbox: 前推=-1，取反后前进=+1
+                lx_raw = self._get_axis(cfg["yaw"]["axis"])
+                rx_raw = self._get_axis(cfg["x"]["axis"])
+                ry_raw = self._get_axis(cfg["z"]["axis"])      # 后拉=+1 → 下潜=+1
+                self._handle_joystick_buttons()
+            except pygame.error:
+                # 手柄物理拔出导致 pygame 调用失败，回退到键盘模式
+                self._has_joystick = False
+                self._joystick = None
+                print("[Joystick] pygame 调用异常，回退到键盘模式")
+                self._handle_keyboard_axes()
+                ly_raw = self._key_axes["y"]
+                lx_raw = self._key_axes["yaw"]
+                rx_raw = self._key_axes["x"]
+                ry_raw = self._key_axes["z"]
+                self._handle_keyboard_buttons()
         else:
             self._handle_keyboard_axes()
             ly_raw = self._key_axes["y"]

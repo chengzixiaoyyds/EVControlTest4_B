@@ -166,8 +166,11 @@ class SerialComm:
         """
         need_wait = False  # 首次不等待，直接尝试连接
         while not self._stop_event.is_set():
-            # ── 未连接：尝试连接或重连 ──
-            if self._ser is None or not self._ser.is_open:
+            # ── 锁内检查 _ser 状态，避免 TOCTOU ──
+            with self._lock:
+                ser_snapshot = self._ser
+                port_dead = ser_snapshot is None or not ser_snapshot.is_open
+            if port_dead:
                 self._set_connected(False)
                 if need_wait:
                     print(f"[SerialComm] 串口断开，{self._reconnect_interval}s 后重试...")

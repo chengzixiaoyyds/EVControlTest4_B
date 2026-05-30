@@ -73,7 +73,8 @@ class AppCore:
         self._callbacks = AppCallbacks()
 
         # ── 线程安全 ──
-        self._state_lock = threading.Lock()  # 保护 _latest_control / _latest_sensor
+        self._state_lock = threading.Lock()   # 保护 _latest_control / _latest_sensor
+        self._serial_lock = threading.Lock()  # 保护 _serial 引用（独立于数据锁，避免语义混淆）
 
         # ── 状态 ──
         self._latest_control: Optional[ControlState] = None
@@ -167,7 +168,8 @@ class AppCore:
         reconnect_interval = self._get_cfg("serial", "reconnect_interval", 2.0, float)
         request_interval = self._get_cfg("serial", "request_interval", 0.2, float)
         self._request_interval = request_interval
-        self._serial = SerialComm(port, baudrate, timeout, poll_interval, reconnect_interval)
+        with self._serial_lock:
+            self._serial = SerialComm(port, baudrate, timeout, poll_interval, reconnect_interval)
         self._serial.set_callback(self._on_serial_frame)
         self._serial.set_status_callback(self._on_serial_status)
         connected = self._serial.connect()
@@ -210,23 +212,25 @@ class AppCore:
             self._camera.stop()
             self._camera = None
 
-        if self._serial:
-            self._serial.disconnect()
-            self._serial = None
+        with self._serial_lock:
+            if self._serial:
+                self._serial.disconnect()
+                self._serial = None
 
         if self._joystick:
             self._joystick.close()
             self._joystick = None
 
     # === 每帧更新（125Hz，主循环调用）===
-    def update(self) -> ControlState:
+    def update(self) -> Optional[ControlState]:
         """
         每帧调用一次（推荐 125 Hz）。
         读取手柄 → 发送下行数据帧 → 返回 ControlState。
         手柄热插拔检测也在此处（按时间间隔触发），避免 pygame 多线程访问。
+        当 _joystick 未初始化时返回 None，调用方应跳过后续处理。
         """
         if self._joystick is None:
-            return ControlState()
+            return None
 
         # ── 手柄热插拔检测（主线程中执行，线程安全）──
         now = time.time()
@@ -240,7 +244,9 @@ class AppCore:
         cs = self._joystick.update()
 
         # 发送下行数据帧
-        if self._serial and self._serial.is_connected():
+        with self._serial_lock:
+            serial = self._serial
+        if serial is not None and serial.is_connected():
             frame = SerialComm.build_data_frame(
                 thrust_y=cs.thrust_y,
                 thrust_x=cs.thrust_x,
@@ -248,7 +254,7 @@ class AppCore:
                 yaw_torque=cs.yaw_torque,
                 arm_angle=cs.arm_angle,
             )
-            self._serial.send_frame(frame)
+            serial.send_frame(frame)
 
         with self._state_lock:
             self._latest_control = cs
@@ -360,8 +366,8 @@ class AppCore:
     def _request_timer_loop(self) -> None:
         """后台线程：定时发送下行请求帧(0x52 'R')，下位机收到后才回传上行数据帧(0x53 'S')"""
         while not self._request_timer_stop.is_set():
-            # 加锁读取 _serial，保证跨线程内存可见性
-            with self._state_lock:
+            # 使用独立 _serial_lock 读取设备引用，避免与数据锁竞争
+            with self._serial_lock:
                 serial = self._serial
             if serial is not None and serial.is_connected():
                 try:
@@ -421,7 +427,9 @@ class AppCore:
     @property
     def is_serial_connected(self) -> bool:
         """串口是否已连接"""
-        return self._serial is not None and self._serial.is_connected()
+        with self._serial_lock:
+            serial = self._serial
+        return serial is not None and serial.is_connected()
 
     @property
     def has_joystick(self) -> bool:

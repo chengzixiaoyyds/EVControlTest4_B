@@ -178,11 +178,23 @@ class OvercurrentMonitor:
 
     def reset_statistics(self) -> None:
         """重置过流累计时间统计（线程安全）"""
+        exit_cb = None
+        exit_current = 0.0
+        exit_duration = 0.0
         with self._lock:
-            self._total_overcurrent_time = 0.0
+            was_overcurrent = self._is_overcurrent
+            if was_overcurrent and self._overcurrent_start is not None:
+                exit_duration = time.time() - self._overcurrent_start
+                self._total_overcurrent_time += exit_duration
+                exit_cb = self._on_exit_overcurrent
+                # 当前电流未知，传 0.0 表示空/无读数
+                exit_current = 0.0
             self._overcurrent_start = None
             self._is_overcurrent = False
             self._last_update_time = None
+        # 锁外调用退出回调，通知 UI 过流已结束
+        if exit_cb:
+            exit_cb(exit_current, exit_duration)
 
     def get_status_dict(self) -> dict:
         """返回当前过流状态摘要（供 GUI 使用，线程安全）"""

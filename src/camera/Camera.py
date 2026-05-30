@@ -41,7 +41,7 @@ class Camera:
         self._frame: Optional[np.ndarray] = None
         self._frame_lock = threading.Lock()
         self._cap_lock = threading.Lock()  # 保护 _cap 的赋值/释放，防止 stop() 与采集线程竞态
-        self._running = False
+        self._running = threading.Event()  # 跨线程可见的停止标志（替代 bool，避免 GIL 依赖）
         self._thread: Optional[threading.Thread] = None
         self._connected = False
 
@@ -61,7 +61,7 @@ class Camera:
     @property
     def is_connected(self) -> bool:
         """摄像头是否已连接并正在采集"""
-        return self._connected and self._running
+        return self._connected and self._running.is_set()
 
     @property
     def width(self) -> int:
@@ -82,7 +82,7 @@ class Camera:
         打开摄像头并启动采集线程。
         返回 True 表示成功。
         """
-        if self._running:
+        if self._running.is_set():
             return True
 
         self._cap = cv2.VideoCapture(self._camera_id)
@@ -106,7 +106,7 @@ class Camera:
 
         self._frame = frame
         self._connected = True
-        self._running = True
+        self._running.set()
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
 
@@ -117,7 +117,7 @@ class Camera:
 
     def stop(self) -> None:
         """停止采集并释放摄像头（含录像）"""
-        self._running = False
+        self._running.clear()
         with self._record_lock:
             was_recording = self._recording
         if was_recording:
@@ -152,7 +152,7 @@ class Camera:
 
     # ── 后台采集线程（同时处理录像写入和 FPS 统计）──
     def _capture_loop(self) -> None:
-        while self._running:
+        while self._running.is_set():
             with self._cap_lock:
                 cap = self._cap
             if cap is None or not cap.isOpened():
