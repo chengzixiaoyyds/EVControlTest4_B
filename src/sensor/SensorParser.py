@@ -192,6 +192,8 @@ class OvercurrentMonitor:
                 else:
                     # 防御：状态不一致（过流中但缺少开始时间），强制修复
                     self._is_overcurrent = False
+            # 重置全部统计状态（含累计时间归零）
+            self._total_overcurrent_time = 0.0
             self._overcurrent_start = None
             self._is_overcurrent = False
             self._last_update_time = None
