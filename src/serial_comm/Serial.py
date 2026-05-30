@@ -181,15 +181,16 @@ class SerialComm:
             try:
                 with self._lock:
                     ser = self._ser
-                if ser is None or not ser.is_open:
-                    continue
-                # read 在锁外执行：timeout 已限制最大阻塞时间，
-                # 避免阻塞 send_frame() 获取 _lock
-                waiting = ser.in_waiting
-                if waiting:
-                    data = ser.read(waiting)
-                else:
-                    data = b''
+                    if ser is None or not ser.is_open:
+                        continue
+                    # in_waiting 和 read(waiting) 均在锁内执行，
+                    # 消除 TOCTOU：避免锁外使用时端口被 _close_port() 并发关闭。
+                    # read 读取已知可用字节数，不会阻塞，锁持有时间极短。
+                    waiting = ser.in_waiting
+                    if waiting:
+                        data = ser.read(waiting)
+                    else:
+                        data = b''
                 if data:
                     written = self._buffer.write(data)
                     if written == 0:
@@ -247,7 +248,7 @@ class SerialComm:
         return _HEADER + payload + bytes([xor_val]) + _TAIL
 
     def send_frame(self, frame: bytes) -> bool:
-        """发送一帧数据，成功返回 True（线程安全，write 不在锁内避免阻塞接收线程）
+        """发送一帧数据，成功返回 True（线程安全，write 在锁内防止多线程数据交错）
 
         注意：write 超时不会关闭端口。Windows USB 驱动瞬时延迟可能触发超时，
         但串口并未真正断开。端口状态由 _connection_manager 读线程独立监控。
@@ -256,15 +257,22 @@ class SerialComm:
             ser = self._ser
             if ser is None or not ser.is_open:
                 return False
+            try:
+                ser.write(frame)
+                #print(f"\r[SerialComm] 发送帧: {frame.hex()}", end='')
+                return True
+            except serial.SerialTimeoutException:
+                # 写超时是瞬时现象（USB 总线延迟），不意味着端口断开
+                return False
+            except serial.SerialException:
+                pass  # 端口故障，锁外关闭该特定端口对象
+        # 仅关闭已确认故障的端口对象，避免误关 _connection_manager 重连后的新端口
         try:
-            ser.write(frame)
-            #print(f"\r[SerialComm] 发送帧: {frame.hex()}", end='')
-            return True
-        except serial.SerialTimeoutException:
-            # 写超时是瞬时现象（USB 总线延迟），不意味着端口断开
-            return False
-        except serial.SerialException:
+            if ser.is_open:
+                ser.close()
+        except Exception:
             pass
-        # 仅 SerialException（端口真的不可用）才关闭
-        self._close_port()
+        with self._lock:
+            if self._ser is ser:
+                self._ser = None
         return False

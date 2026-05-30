@@ -91,6 +91,7 @@ class AppCore:
         self._request_interval = 0.2  # 默认值，start() 中从 config 覆盖
         self._request_timer_thread: Optional[threading.Thread] = None
         self._request_timer_stop = threading.Event()
+        self._shutting_down = threading.Event()  # 关闭标志（跨线程可见），阻止 stop() 后重启定时器
 
         # ── 手柄热插拔检测（在主线程 update() 中按时间间隔执行，避免 pygame 多线程问题）──
         self._joystick_poll_interval = 1.0  # 默认值，start() 中从 config 覆盖
@@ -201,7 +202,8 @@ class AppCore:
 
     def stop(self) -> None:
         """停止所有子系统并释放资源"""
-        # 停止请求帧定时器
+        # 先置关闭标志（Event.set() 保证跨线程内存可见性），阻止串口重连回调重启请求帧定时器
+        self._shutting_down.set()
         self._stop_request_timer()
 
         if self._camera:
@@ -339,6 +341,8 @@ class AppCore:
     # === 请求帧定时器 ===
     def _start_request_timer(self) -> None:
         """启动后台线程，每 200ms 发送下行请求帧(0x52 'R')，触发下位机回传传感器数据"""
+        if self._shutting_down.is_set():
+            return  # 正在关闭，拒绝启动新定时器
         self._stop_request_timer()
         self._request_timer_stop.clear()
         self._request_timer_thread = threading.Thread(
@@ -356,10 +360,12 @@ class AppCore:
     def _request_timer_loop(self) -> None:
         """后台线程：定时发送下行请求帧(0x52 'R')，下位机收到后才回传上行数据帧(0x53 'S')"""
         while not self._request_timer_stop.is_set():
-            if self._serial and self._serial.is_connected():
+            # 捕获本地引用，避免 stop() 并发置 None 导致 TOCTOU 竞态
+            serial = self._serial
+            if serial is not None and serial.is_connected():
                 try:
                     frame = SerialComm.build_request_frame()
-                    self._serial.send_frame(frame)
+                    serial.send_frame(frame)
                 except Exception as e:
                     print(f"[AppCore] 请求帧发送异常: {e}")
             self._request_timer_stop.wait(self._request_interval)
@@ -402,12 +408,14 @@ class AppCore:
     @property
     def latest_control(self) -> Optional[ControlState]:
         """最近一次控制状态"""
-        return self._latest_control
+        with self._state_lock:
+            return self._latest_control
 
     @property
     def latest_sensor(self) -> Optional[SensorData]:
         """最近一次传感器数据"""
-        return self._latest_sensor
+        with self._state_lock:
+            return self._latest_sensor
 
     @property
     def is_serial_connected(self) -> bool:

@@ -138,6 +138,13 @@ class OvercurrentMonitor:
         if timestamp is None:
             timestamp = time.time()
 
+        # 锁内仅更新状态，捕获待触发的回调，锁外执行以避免持锁期间调用外部代码
+        enter_cb = None
+        enter_current = 0.0
+        exit_cb = None
+        exit_current = 0.0
+        exit_duration = 0.0
+
         with self._lock:
             now_over = current > self._threshold
 
@@ -145,8 +152,8 @@ class OvercurrentMonitor:
                 # 进入过流
                 self._is_overcurrent = True
                 self._overcurrent_start = timestamp
-                if self._on_enter_overcurrent:
-                    self._on_enter_overcurrent(current)
+                enter_cb = self._on_enter_overcurrent
+                enter_current = current
 
             elif not now_over and self._is_overcurrent:
                 # 退出过流：累计本次过流时长
@@ -157,10 +164,17 @@ class OvercurrentMonitor:
                     duration = 0.0
                 self._is_overcurrent = False
                 self._overcurrent_start = None
-                if self._on_exit_overcurrent:
-                    self._on_exit_overcurrent(current, duration)
+                exit_cb = self._on_exit_overcurrent
+                exit_current = current
+                exit_duration = duration
 
             self._last_update_time = timestamp
+
+        # 锁外调用回调，避免持锁期间执行外部代码导致潜在死锁
+        if enter_cb:
+            enter_cb(enter_current)
+        if exit_cb:
+            exit_cb(exit_current, exit_duration)
 
     def reset_statistics(self) -> None:
         """重置过流累计时间统计（线程安全）"""

@@ -40,6 +40,7 @@ class Camera:
         self._cap: Optional[cv2.VideoCapture] = None
         self._frame: Optional[np.ndarray] = None
         self._frame_lock = threading.Lock()
+        self._cap_lock = threading.Lock()  # 保护 _cap 的赋值/释放，防止 stop() 与采集线程竞态
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._connected = False
@@ -117,14 +118,17 @@ class Camera:
     def stop(self) -> None:
         """停止采集并释放摄像头（含录像）"""
         self._running = False
-        if self._recording:
+        with self._record_lock:
+            was_recording = self._recording
+        if was_recording:
             self.stop_recording()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        if self._cap is not None:
-            self._cap.release()
-            self._cap = None
+        with self._cap_lock:
+            if self._cap is not None:
+                self._cap.release()
+                self._cap = None
         self._connected = False
         print("[Camera] 已停止")
 
@@ -149,19 +153,23 @@ class Camera:
     # ── 后台采集线程（同时处理录像写入和 FPS 统计）──
     def _capture_loop(self) -> None:
         while self._running:
-            if self._cap is None or not self._cap.isOpened():
+            with self._cap_lock:
+                cap = self._cap
+            if cap is None or not cap.isOpened():
                 time.sleep(0.1)
                 continue
 
-            ret, frame = self._cap.read()
+            ret, frame = cap.read()
             if not ret or frame is None:
-                # 尝试重连：先置空再释放，避免其他线程访问已释放对象
+                # 尝试重连：加锁保护 _cap 的替换，防止 stop() 并发释放
                 print("[Camera] 帧读取失败，尝试重连...")
-                old_cap = self._cap
-                self._cap = None
+                with self._cap_lock:
+                    old_cap = self._cap
+                    self._cap = None
                 if old_cap is not None:
                     old_cap.release()
-                self._cap = cv2.VideoCapture(self._camera_id)
+                with self._cap_lock:
+                    self._cap = cv2.VideoCapture(self._camera_id)
                 time.sleep(0.5)
                 continue
 
@@ -219,9 +227,10 @@ class Camera:
         :param codec:    编码格式 FourCC（默认 XVID）
         :return:         是否成功
         """
-        if self._recording:
-            print("[Camera] 已在录像中")
-            return False
+        with self._record_lock:
+            if self._recording:
+                print("[Camera] 已在录像中")
+                return False
 
         fourcc = cv2.VideoWriter.fourcc(*codec)
         writer = cv2.VideoWriter(
@@ -229,6 +238,7 @@ class Camera:
         )
         if not writer.isOpened():
             print(f"[Camera] 无法创建视频文件: {filepath}")
+            writer.release()
             return False
 
         with self._record_lock:
@@ -250,13 +260,15 @@ class Camera:
             self._recording = False
             writer = self._video_writer
             self._video_writer = None
+            # 锁内捕获时间戳与路径，避免锁外读取时被并发 start_recording() 覆写
+            start_time = self._record_start_time
+            record_path = self._record_path
+            self._record_path = ""
 
         if writer is not None:
             writer.release()
 
-        duration = time.time() - self._record_start_time
-        print(f"[Camera] 录像已停止 ({duration:.1f}s) → {self._record_path}")
-        path = self._record_path
-        self._record_path = ""
-        return path
+        duration = time.time() - start_time
+        print(f"[Camera] 录像已停止 ({duration:.1f}s) → {record_path}")
+        return record_path
 
