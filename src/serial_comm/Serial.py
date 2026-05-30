@@ -84,6 +84,8 @@ class SerialComm:
 
         self._lock = threading.Lock()
         self._connected = False
+        self._write_fail_count = 0          # 连续写失败计数
+        self._WRITE_FAIL_THRESHOLD = 5      # 连续失败阈值（超过则判定端口死亡）
 
     # ---------- 连接管理 ----------
     def connect(self) -> bool:
@@ -132,16 +134,19 @@ class SerialComm:
 
     # ---------- 底层端口操作 ----------
     def _try_open_port(self) -> bool:
-        """尝试打开串口，成功返回 True"""
+        """尝试打开串口，成功返回 True（线程安全）"""
         try:
-            self._ser = serial.Serial(
+            new_ser = serial.Serial(
                 self._port, self._baudrate, timeout=self._timeout,
                 write_timeout=0.1,
             )
-            return True
         except serial.SerialException as e:
             print(f"[SerialComm] 无法打开串口 {self._port}: {e}")
             return False
+        # 持锁替换 _ser，避免与 send_frame() / _close_port() 竞态
+        with self._lock:
+            self._ser = new_ser
+        return True
 
     def _close_port(self) -> None:
         """安全关闭串口（线程安全）"""
@@ -250,8 +255,9 @@ class SerialComm:
     def send_frame(self, frame: bytes) -> bool:
         """发送一帧数据，成功返回 True（线程安全，write 在锁内防止多线程数据交错）
 
-        注意：write 超时不会关闭端口。Windows USB 驱动瞬时延迟可能触发超时，
-        但串口并未真正断开。端口状态由 _connection_manager 读线程独立监控。
+        连续超时策略：单次 SerialTimeoutException 可能是 USB 总线瞬时抖动，
+        仅计数不关闭端口；连续失败达到阈值才判定端口死亡并触发重连。
+        SerialException（句柄失效等硬故障）则立即关闭端口。
         """
         with self._lock:
             ser = self._ser
@@ -260,13 +266,19 @@ class SerialComm:
             try:
                 ser.write(frame)
                 #print(f"\r[SerialComm] 发送帧: {frame.hex()}", end='')
+                self._write_fail_count = 0  # 成功写，清零连续失败计数
                 return True
             except serial.SerialTimeoutException:
-                # 写超时是瞬时现象（USB 总线延迟），不意味着端口断开
-                return False
+                # 瞬时间歇，计数。达到阈值才关闭端口。
+                self._write_fail_count += 1
+                if self._write_fail_count >= self._WRITE_FAIL_THRESHOLD:
+                    print(f"[SerialComm] 连续 {self._write_fail_count} 次写超时，判定端口死亡")
+                    # 走出锁，到下方关闭端口
+                else:
+                    return False
             except serial.SerialException:
-                pass  # 端口故障，锁外关闭该特定端口对象
-        # 仅关闭已确认故障的端口对象，避免误关 _connection_manager 重连后的新端口
+                pass  # 硬故障（句柄失效等），立即关闭端口
+        # ── 关闭已确认故障的端口对象 ──
         try:
             if ser.is_open:
                 ser.close()
@@ -275,4 +287,5 @@ class SerialComm:
         with self._lock:
             if self._ser is ser:
                 self._ser = None
+                self._write_fail_count = 0
         return False
