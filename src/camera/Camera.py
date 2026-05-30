@@ -168,8 +168,19 @@ class Camera:
                     self._cap = None
                 if old_cap is not None:
                     old_cap.release()
+                # 重连前检查停止标志，避免创建后立即被泄漏
+                if not self._running.is_set():
+                    break
                 with self._cap_lock:
                     self._cap = cv2.VideoCapture(self._camera_id)
+                # 重连后再次检查：若 stop() 已调用，释放刚创建的设备
+                if not self._running.is_set():
+                    with self._cap_lock:
+                        new_cap = self._cap
+                        self._cap = None
+                    if new_cap is not None:
+                        new_cap.release()
+                    break
                 time.sleep(0.5)
                 continue
 

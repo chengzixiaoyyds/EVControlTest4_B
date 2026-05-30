@@ -183,12 +183,15 @@ class OvercurrentMonitor:
         exit_duration = 0.0
         with self._lock:
             was_overcurrent = self._is_overcurrent
-            if was_overcurrent and self._overcurrent_start is not None:
-                exit_duration = time.time() - self._overcurrent_start
-                self._total_overcurrent_time += exit_duration
-                exit_cb = self._on_exit_overcurrent
-                # 当前电流未知，传 0.0 表示空/无读数
-                exit_current = 0.0
+            if was_overcurrent:
+                if self._overcurrent_start is not None:
+                    exit_duration = time.time() - self._overcurrent_start
+                    self._total_overcurrent_time += exit_duration
+                    exit_cb = self._on_exit_overcurrent
+                    exit_current = 0.0  # 当前电流未知，传 0.0 表示空/无读数
+                else:
+                    # 防御：状态不一致（过流中但缺少开始时间），强制修复
+                    self._is_overcurrent = False
             self._overcurrent_start = None
             self._is_overcurrent = False
             self._last_update_time = None

@@ -47,9 +47,14 @@ class CommandBuffer:
         """写入数据，返回实际写入的字节数；缓冲区满时丢弃旧数据腾出空间"""
         length = len(data)
         if self.get_remain() < length:
-            # 缓冲区满：丢弃最旧的一帧（15字节），为新数据腾出空间
+            # 缓冲区满：向前搜索下一个帧头 0xFA，对齐后丢弃，避免跳过有效数据
             print(f"[CommandBuffer] 缓冲区满，丢弃旧数据以腾出空间")
-            self._add_read_index(_FRAME_LEN)
+            discarded = 0
+            while self.get_length() > 0 and discarded < self.BUFFER_SIZE:
+                if self._read(self.read_index) == 0xFA:
+                    break
+                self._add_read_index(1)
+                discarded += 1
             if self.get_remain() < length:
                 return 0  # 仍然不够（数据过大），放弃写入
 

@@ -208,14 +208,15 @@ class AppCore:
         self._shutting_down.set()
         self._stop_request_timer()
 
-        if self._camera:
-            self._camera.stop()
-            self._camera = None
-
+        # 先断开串口（切断数据源），再停止消费者（摄像头），避免回调在事件循环停止后触发
         with self._serial_lock:
             if self._serial:
                 self._serial.disconnect()
                 self._serial = None
+
+        if self._camera:
+            self._camera.stop()
+            self._camera = None
 
         if self._joystick:
             self._joystick.close()
