@@ -23,6 +23,20 @@ class Ui_MainWindow(object):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.setMinimumSize(QSize(960, 600))
+        MainWindow.setStyleSheet(u"QMainWindow { background-color: #2b2b2b; }\n"
+"QLabel { color: #ccc; }\n"
+"QGroupBox {\n"
+"    font-weight: bold; color: #aaa;\n"
+"    border: 1px solid #555; border-radius: 4px;\n"
+"    margin-top: 10px; padding-top: 14px;\n"
+"}\n"
+"QGroupBox::title {\n"
+"    subcontrol-origin: margin; left: 10px; padding: 0 4px;\n"
+"}\n"
+"QPushButton { padding: 6px 16px; color: #ccc; background: #444;\n"
+"              border: 1px solid #666; border-radius: 3px; }\n"
+"QPushButton:hover { background: #555; }\n"
+"QPushButton:checked { background: #600; color: #f66; }")
         self.centralWidget = QWidget(MainWindow)
         self.centralWidget.setObjectName(u"centralWidget")
         self.rootLayout = QHBoxLayout(self.centralWidget)
@@ -51,11 +65,13 @@ class Ui_MainWindow(object):
         self.connectionLayout.setObjectName(u"connectionLayout")
         self.lblSerial = QLabel(self.connectionGroup)
         self.lblSerial.setObjectName(u"lblSerial")
+        self.lblSerial.setStyleSheet(u"color: #888;")
 
         self.connectionLayout.addWidget(self.lblSerial)
 
         self.lblJoystick = QLabel(self.connectionGroup)
         self.lblJoystick.setObjectName(u"lblJoystick")
+        self.lblJoystick.setStyleSheet(u"color: #888;")
 
         self.connectionLayout.addWidget(self.lblJoystick)
 
@@ -72,16 +88,19 @@ class Ui_MainWindow(object):
         self.modeLayout.setObjectName(u"modeLayout")
         self.lblModeSlow = QLabel(self.modeGroup)
         self.lblModeSlow.setObjectName(u"lblModeSlow")
+        self.lblModeSlow.setStyleSheet(u"color: #888; font-size: 13px; font-weight: bold;")
 
         self.modeLayout.addWidget(self.lblModeSlow)
 
         self.lblModeMedium = QLabel(self.modeGroup)
         self.lblModeMedium.setObjectName(u"lblModeMedium")
+        self.lblModeMedium.setStyleSheet(u"color: #f80; font-size: 13px; font-weight: bold;")
 
         self.modeLayout.addWidget(self.lblModeMedium)
 
         self.lblModeFast = QLabel(self.modeGroup)
         self.lblModeFast.setObjectName(u"lblModeFast")
+        self.lblModeFast.setStyleSheet(u"color: #888; font-size: 13px; font-weight: bold;")
 
         self.modeLayout.addWidget(self.lblModeFast)
 
@@ -98,6 +117,7 @@ class Ui_MainWindow(object):
         self.clawLayout.setObjectName(u"clawLayout")
         self.lblClaw = QLabel(self.clawGroup)
         self.lblClaw.setObjectName(u"lblClaw")
+        self.lblClaw.setStyleSheet(u"color: #ff0; font-weight: bold; font-size: 14px;")
 
         self.clawLayout.addWidget(self.lblClaw)
 
@@ -271,11 +291,14 @@ class Ui_MainWindow(object):
 
         self.btnStopwatch = QPushButton(self.stopwatchGroup)
         self.btnStopwatch.setObjectName(u"btnStopwatch")
+        self.btnStopwatch.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btnStopwatch.setMinimumSize(QSize(80, 0))
 
         self.stopwatchLayout.addWidget(self.btnStopwatch)
 
         self.btnStopwatchReset = QPushButton(self.stopwatchGroup)
         self.btnStopwatchReset.setObjectName(u"btnStopwatchReset")
+        self.btnStopwatchReset.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.stopwatchLayout.addWidget(self.btnStopwatchReset)
 
@@ -286,17 +309,21 @@ class Ui_MainWindow(object):
         self.actionLayout.setObjectName(u"actionLayout")
         self.btnSnapshot = QPushButton(self.centralWidget)
         self.btnSnapshot.setObjectName(u"btnSnapshot")
+        self.btnSnapshot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.actionLayout.addWidget(self.btnSnapshot)
 
         self.btnRecord = QPushButton(self.centralWidget)
         self.btnRecord.setObjectName(u"btnRecord")
+        self.btnRecord.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btnRecord.setMinimumSize(QSize(100, 0))
         self.btnRecord.setCheckable(True)
 
         self.actionLayout.addWidget(self.btnRecord)
 
         self.btnResetOc = QPushButton(self.centralWidget)
         self.btnResetOc.setObjectName(u"btnResetOc")
+        self.btnResetOc.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.actionLayout.addWidget(self.btnResetOc)
 

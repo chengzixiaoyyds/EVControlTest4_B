@@ -8,6 +8,22 @@
   <property name="minimumSize">
    <size><width>960</width><height>600</height></size>
   </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow { background-color: #2b2b2b; }
+QLabel { color: #ccc; }
+QGroupBox {
+    font-weight: bold; color: #aaa;
+    border: 1px solid #555; border-radius: 4px;
+    margin-top: 10px; padding-top: 14px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin; left: 10px; padding: 0 4px;
+}
+QPushButton { padding: 6px 16px; color: #ccc; background: #444;
+              border: 1px solid #666; border-radius: 3px; }
+QPushButton:hover { background: #555; }
+QPushButton:checked { background: #600; color: #f66; }</string>
+  </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QHBoxLayout" name="rootLayout">
     <property name="spacing"><number>8</number></property>
@@ -38,8 +54,8 @@
        <widget class="QGroupBox" name="connectionGroup">
         <property name="title"><string>连接状态</string></property>
         <layout class="QHBoxLayout" name="connectionLayout">
-         <item><widget class="QLabel" name="lblSerial"><property name="text"><string>串口: ○ 未连接</string></property></widget></item>
-         <item><widget class="QLabel" name="lblJoystick"><property name="text"><string>手柄: ○ 未连接</string></property></widget></item>
+         <item><widget class="QLabel" name="lblSerial"><property name="styleSheet"><string notr="true">color: #888;</string></property><property name="text"><string>串口: ○ 未连接</string></property></widget></item>
+         <item><widget class="QLabel" name="lblJoystick"><property name="styleSheet"><string notr="true">color: #888;</string></property><property name="text"><string>手柄: ○ 未连接</string></property></widget></item>
          <item><spacer name="connSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
         </layout>
        </widget>
@@ -49,9 +65,9 @@
        <widget class="QGroupBox" name="modeGroup">
         <property name="title"><string>运动模式</string></property>
         <layout class="QHBoxLayout" name="modeLayout">
-         <item><widget class="QLabel" name="lblModeSlow"><property name="text"><string>○ SLOW</string></property></widget></item>
-         <item><widget class="QLabel" name="lblModeMedium"><property name="text"><string>● MEDIUM</string></property></widget></item>
-         <item><widget class="QLabel" name="lblModeFast"><property name="text"><string>○ FAST</string></property></widget></item>
+         <item><widget class="QLabel" name="lblModeSlow"><property name="styleSheet"><string notr="true">color: #888; font-size: 13px; font-weight: bold;</string></property><property name="text"><string>○ SLOW</string></property></widget></item>
+         <item><widget class="QLabel" name="lblModeMedium"><property name="styleSheet"><string notr="true">color: #f80; font-size: 13px; font-weight: bold;</string></property><property name="text"><string>● MEDIUM</string></property></widget></item>
+         <item><widget class="QLabel" name="lblModeFast"><property name="styleSheet"><string notr="true">color: #888; font-size: 13px; font-weight: bold;</string></property><property name="text"><string>○ FAST</string></property></widget></item>
          <item><spacer name="modeSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
         </layout>
        </widget>
@@ -61,7 +77,7 @@
        <widget class="QGroupBox" name="clawGroup">
         <property name="title"><string>夹爪状态</string></property>
         <layout class="QHBoxLayout" name="clawLayout">
-         <item><widget class="QLabel" name="lblClaw"><property name="text"><string>夹紧</string></property></widget></item>
+         <item><widget class="QLabel" name="lblClaw"><property name="styleSheet"><string notr="true">color: #ff0; font-weight: bold; font-size: 14px;</string></property><property name="text"><string>夹紧</string></property></widget></item>
          <item><spacer name="clawSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
         </layout>
        </widget>
@@ -124,17 +140,17 @@
         <layout class="QHBoxLayout" name="stopwatchLayout">
          <item><widget class="QLabel" name="lblStopwatch"><property name="text"><string>00:00:00</string></property></widget></item>
          <item><spacer name="swSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>20</width><height>20</height></size></property></spacer></item>
-         <item><widget class="QPushButton" name="btnStopwatch"><property name="text"><string>▶ 开始</string></property></widget></item>
-         <item><widget class="QPushButton" name="btnStopwatchReset"><property name="text"><string>↺ 重置</string></property></widget></item>
+         <item><widget class="QPushButton" name="btnStopwatch"><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="minimumSize"><size><width>80</width><height>0</height></size></property><property name="text"><string>▶ 开始</string></property></widget></item>
+         <item><widget class="QPushButton" name="btnStopwatchReset"><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="text"><string>↺ 重置</string></property></widget></item>
         </layout>
        </widget>
       </item>
       <item>
        <!-- 操作按钮 -->
        <layout class="QHBoxLayout" name="actionLayout">
-        <item><widget class="QPushButton" name="btnSnapshot"><property name="text"><string>截图</string></property></widget></item>
-        <item><widget class="QPushButton" name="btnRecord"><property name="text"><string>● 录像</string></property><property name="checkable"><bool>true</bool></property></widget></item>
-        <item><widget class="QPushButton" name="btnResetOc"><property name="text"><string>重置过流统计</string></property></widget></item>
+        <item><widget class="QPushButton" name="btnSnapshot"><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="text"><string>截图</string></property></widget></item>
+        <item><widget class="QPushButton" name="btnRecord"><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="minimumSize"><size><width>100</width><height>0</height></size></property><property name="text"><string>● 录像</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+        <item><widget class="QPushButton" name="btnResetOc"><property name="focusPolicy"><enum>Qt::NoFocus</enum></property><property name="text"><string>重置过流统计</string></property></widget></item>
         <item><spacer name="actionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint"><size><width>40</width><height>20</height></size></property></spacer></item>
        </layout>
       </item>

@@ -360,8 +360,9 @@ class AppCore:
     def _request_timer_loop(self) -> None:
         """后台线程：定时发送下行请求帧(0x52 'R')，下位机收到后才回传上行数据帧(0x53 'S')"""
         while not self._request_timer_stop.is_set():
-            # 捕获本地引用，避免 stop() 并发置 None 导致 TOCTOU 竞态
-            serial = self._serial
+            # 加锁读取 _serial，保证跨线程内存可见性
+            with self._state_lock:
+                serial = self._serial
             if serial is not None and serial.is_connected():
                 try:
                     frame = SerialComm.build_request_frame()

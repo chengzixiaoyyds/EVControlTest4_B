@@ -55,7 +55,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._key_bridge = KeyBridge(keyboard_cfg) if keyboard_cfg else None
         self._mode_names: dict = dict(_DEFAULT_MODE_NAMES)
         self._init_state()
-        self._apply_styles()
         self._connect_signals()
 
     # ── 修复状态栏 ──
@@ -83,28 +82,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._ui_timer.timeout.connect(self._on_tick)
 
     def _apply_styles(self) -> None:
-        self.setStyleSheet("""
-            QMainWindow { background-color: #2b2b2b; }
-            QLabel { color: #ccc; }
-            QGroupBox {
-                font-weight: bold; color: #aaa;
-                border: 1px solid #555; border-radius: 4px;
-                margin-top: 10px; padding-top: 14px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin; left: 10px; padding: 0 4px;
-            }
-            QPushButton { padding: 6px 16px; color: #ccc; background: #444;
-                          border: 1px solid #666; border-radius: 3px; }
-            QPushButton:hover { background: #555; }
-            QPushButton:checked { background: #600; color: #f66; }
-        """)
-        self.lblSerial.setStyleSheet(S_DIM)
-        self.lblJoystick.setStyleSheet(S_DIM)
-
-        # 禁用按钮焦点，防止方向键切换按钮选中
-        for btn in (self.btnSnapshot, self.btnRecord, self.btnResetOc, self.btnStopwatch, self.btnStopwatchReset):
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        """样式已迁移到 .ui 文件，此处保留以兼容将来可能需要的运行时样式调整"""
+        pass
 
     def _connect_signals(self) -> None:
         t = Qt.ConnectionType.QueuedConnection
@@ -224,7 +203,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.sig_overcurrent_update.emit({"event": "enter", "current": current})
 
     def _cb_oc_exit(self, current: float, duration: float) -> None:
-        self.sig_overcurrent_update.emit({"event": "exit", "current": current})
+        self.sig_overcurrent_update.emit({"event": "exit", "current": current, "duration": duration})
 
     def _cb_serial(self, connected: bool) -> None:
         self.sig_connection_update.emit(connected)

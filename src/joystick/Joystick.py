@@ -52,7 +52,7 @@ class ControlState:
     thrust_x: float = 0.0       # X 推力 (N)，右移为正（预留）
     thrust_z: float = 0.0       # Z 推力 (N)，下潜为正
     yaw_torque: float = 0.0     # Yaw 扭矩 (N·m)，顺时针为正
-    arm_angle: int = 0x00        # 机械臂角度 0x00夹紧~0x80松开
+    arm_angle: int = 0x00        # 机械臂角度 0x00夹紧~0x40松开
     mode: SpeedMode = SpeedMode.SLOW
     mode_name: str = "SLOW"      # 当前模式名称（由 JoystickController 填充）
     claw_open: bool = False     # 夹爪是否张开

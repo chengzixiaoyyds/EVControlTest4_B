@@ -33,6 +33,7 @@ replacements = [
     ("Qt.AlignTop",                  "Qt.AlignmentFlag.AlignTop"),
     ("Qt.AlignBottom",              "Qt.AlignmentFlag.AlignBottom"),
     ("Qt.AlignHCenter",             "Qt.AlignmentFlag.AlignHCenter"),
+    ("Qt.NoFocus",                  "Qt.FocusPolicy.NoFocus"),
 ]
 for old, new in replacements:
     text = text.replace(old, new)

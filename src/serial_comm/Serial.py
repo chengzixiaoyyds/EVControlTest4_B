@@ -259,6 +259,7 @@ class SerialComm:
         仅计数不关闭端口；连续失败达到阈值才判定端口死亡并触发重连。
         SerialException（句柄失效等硬故障）则立即关闭端口。
         """
+        should_close = False
         with self._lock:
             ser = self._ser
             if ser is None or not ser.is_open:
@@ -269,23 +270,26 @@ class SerialComm:
                 self._write_fail_count = 0  # 成功写，清零连续失败计数
                 return True
             except serial.SerialTimeoutException:
-                # 瞬时间歇，计数。达到阈值才关闭端口。
+                # 瞬时间歇，计数。达到阈值才判定端口死亡
                 self._write_fail_count += 1
                 if self._write_fail_count >= self._WRITE_FAIL_THRESHOLD:
                     print(f"[SerialComm] 连续 {self._write_fail_count} 次写超时，判定端口死亡")
-                    # 走出锁，到下方关闭端口
+                    # 先在锁内置 None，阻止接收线程继续读写本端口
+                    self._ser = None
+                    self._write_fail_count = 0
+                    should_close = True
                 else:
                     return False
             except serial.SerialException:
-                pass  # 硬故障（句柄失效等），立即关闭端口
-        # ── 关闭已确认故障的端口对象 ──
-        try:
-            if ser.is_open:
-                ser.close()
-        except Exception:
-            pass
-        with self._lock:
-            if self._ser is ser:
+                # 硬故障（句柄失效等），先在锁内置 None，阻止接收线程继续读写
                 self._ser = None
                 self._write_fail_count = 0
+                should_close = True
+        # ── 锁外安全关闭已分离的端口对象 ──
+        if should_close:
+            try:
+                if ser.is_open:
+                    ser.close()
+            except Exception:
+                pass
         return False
